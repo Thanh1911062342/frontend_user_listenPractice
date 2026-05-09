@@ -96,7 +96,6 @@ export function SetupPage() {
           {catQuery.isLoading && <Spinner />}
           {catQuery.data?.map((cat) => {
             const grad = catGradient(cat.name);
-            const initial = cat.name.charAt(0).toUpperCase();
             const pill = LEVEL_PILL[cat.level ?? ""] ?? "";
             return (
               <button
@@ -108,11 +107,6 @@ export function SetupPage() {
                 }}
                 className="w-full text-left bg-white rounded-2xl shadow-sm border border-gray-100 flex items-center gap-4 px-4 py-4 active:scale-[0.98] transition-transform"
               >
-                <div
-                  className={`w-12 h-12 rounded-xl bg-gradient-to-br ${grad} flex items-center justify-center shrink-0 shadow-sm`}
-                >
-                  <span className="text-white text-lg font-bold">{initial}</span>
-                </div>
                 <div className="flex-1 min-w-0">
                   <div className="flex items-center gap-2 flex-wrap">
                     <p className="font-semibold text-gray-900 truncate">{cat.name}</p>
