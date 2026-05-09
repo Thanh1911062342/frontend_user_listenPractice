@@ -35,7 +35,9 @@ export function PracticeTab({ sessionId, audioRef, rangeStartMs, rangeEndMs, onC
   const [error, setError] = useState("");
   const [playingId, setPlayingId] = useState<number | null>(null);
   const [isRangePlaying, setIsRangePlaying] = useState(false);
+  const [isLooping, setIsLooping] = useState(false);
   const isRangePlayingRef = useRef(false);
+  const isLoopingRef = useRef(false);
 
   // Load questions immediately on mount
   useEffect(() => {
@@ -57,9 +59,14 @@ export function PracticeTab({ sessionId, audioRef, rangeStartMs, rangeEndMs, onC
     if (!a) return;
     const onUpdate = () => {
       if (isRangePlayingRef.current && a.currentTime * 1000 >= rangeEndMs) {
-        a.pause();
-        isRangePlayingRef.current = false;
-        setIsRangePlaying(false);
+        if (isLoopingRef.current) {
+          a.currentTime = rangeStartMs / 1000;
+          a.play();
+        } else {
+          a.pause();
+          isRangePlayingRef.current = false;
+          setIsRangePlaying(false);
+        }
       }
     };
     const onEnded = () => {
@@ -73,7 +80,7 @@ export function PracticeTab({ sessionId, audioRef, rangeStartMs, rangeEndMs, onC
       a.removeEventListener("timeupdate", onUpdate);
       a.removeEventListener("ended", onEnded);
     };
-  }, [audioRef, rangeEndMs]);
+  }, [audioRef, rangeEndMs, rangeStartMs]);
 
   const toggleRangePlay = () => {
     const a = audioRef.current;
@@ -89,6 +96,12 @@ export function PracticeTab({ sessionId, audioRef, rangeStartMs, rangeEndMs, onC
       isRangePlayingRef.current = true;
       setIsRangePlaying(true);
     }
+  };
+
+  const toggleLoop = () => {
+    const next = !isLoopingRef.current;
+    isLoopingRef.current = next;
+    setIsLooping(next);
   };
 
   const replaySegment = (startMs: number, endMs: number, qId: number) => {
@@ -160,6 +173,22 @@ export function PracticeTab({ sessionId, audioRef, rangeStartMs, rangeEndMs, onC
               {allCorrect ? "Perfect" : "Results"}
             </span>
           )}
+          {/* Loop toggle */}
+          <button
+            onClick={toggleLoop}
+            className={`w-7 h-7 rounded-full flex items-center justify-center transition-colors ${
+              isLooping
+                ? "bg-indigo-100 text-indigo-600"
+                : "text-gray-400 hover:text-indigo-500"
+            }`}
+          >
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="w-3.5 h-3.5">
+              <path d="M17 2l4 4-4 4" />
+              <path d="M3 11V9a4 4 0 0 1 4-4h14" />
+              <path d="M7 22l-4-4 4-4" />
+              <path d="M21 13v2a4 4 0 0 1-4 4H3" />
+            </svg>
+          </button>
           {/* Play / Stop full range */}
           <button
             onClick={toggleRangePlay}
