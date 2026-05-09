@@ -27,6 +27,3 @@ export function patchConfig(patch: Partial<PracticeConfig>): void {
   if (c) saveConfig({ ...c, ...patch });
 }
 
-export function clearConfig(): void {
-  localStorage.removeItem(KEY);
-}

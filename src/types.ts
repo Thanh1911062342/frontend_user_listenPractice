@@ -35,17 +35,6 @@ export interface Exercise {
   total_questions: number;
 }
 
-export interface Question {
-  id: number;
-  order: number;
-  total: number;
-  audio_start_ms: number;
-  audio_end_ms: number;
-  type: "dictation" | "fill_blank";
-  display_text?: string;
-  blank_count?: number;
-}
-
 export interface UserSession {
   id: number;
   exercise_id: number;
@@ -54,15 +43,6 @@ export interface UserSession {
   locked_start: number | null;
   locked_end: number | null;
   started_at: string;
-}
-
-export interface AnswerResult {
-  is_correct: boolean;
-  score: number;
-  correct_text: string;
-  user_input: string;
-  can_continue: boolean;
-  is_last: boolean;
 }
 
 export interface AudioToken {
