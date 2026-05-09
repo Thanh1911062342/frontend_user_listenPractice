@@ -71,7 +71,8 @@ export function PlayerPage() {
         getExercise(trackId),
       ]);
       setTrack(trackData);
-      setAudioUrl(token.url);
+      const base = import.meta.env.VITE_API_URL ?? "";
+      setAudioUrl(base + token.url);
       const session = await startSession(
         exercise.id,
         cfg.segFrom ?? undefined,
