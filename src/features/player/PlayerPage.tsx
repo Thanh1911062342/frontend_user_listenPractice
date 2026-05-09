@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { getTrack } from "../../api/content";
 import { getAudioToken, getExercise, startSession } from "../../api/session";
+import { getCachedAudio, setCachedAudio } from "../../utils/audioCache";
 import {
   type PracticeConfig,
   loadConfig,
@@ -65,14 +66,22 @@ export function PlayerPage() {
     setTrack(null);
 
     try {
-      const [trackData, token, exercise] = await Promise.all([
+      const [trackData, exercise] = await Promise.all([
         getTrack(trackId),
-        getAudioToken(trackId),
         getExercise(trackId),
       ]);
       setTrack(trackData);
-      const base = import.meta.env.VITE_API_URL ?? "";
-      setAudioUrl(base + token.url);
+
+      let audioObjectUrl = await getCachedAudio(trackId, trackData.updated_at);
+      if (!audioObjectUrl) {
+        const token = await getAudioToken(trackId);
+        const base = import.meta.env.VITE_API_URL ?? "";
+        const resp = await fetch(base + token.url);
+        const blob = await resp.blob();
+        await setCachedAudio(trackId, trackData.updated_at, blob);
+        audioObjectUrl = URL.createObjectURL(blob);
+      }
+      setAudioUrl(audioObjectUrl);
       const session = await startSession(
         exercise.id,
         cfg.segFrom ?? undefined,

@@ -16,6 +16,7 @@ export interface Track {
   duration_ms: number | null;
   difficulty: string | null;
   created_at: string;
+  updated_at: string;
 }
 
 export interface Segment {
