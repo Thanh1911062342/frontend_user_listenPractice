@@ -247,7 +247,7 @@ export function AudioTab({
 
   // ── Layout: full player ──────────────────────────────────────────────────
   return (
-    <div className="flex flex-col h-full">
+    <div className="flex flex-col h-[90%]">
       {/* Spacer + artwork */}
       <div className="flex-1 flex flex-col items-center justify-center px-8 gap-5">
         {trackTotal > 1 && (
