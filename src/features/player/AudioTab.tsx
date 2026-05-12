@@ -178,7 +178,7 @@ export function AudioTab({
   // ── Layout: script open ──────────────────────────────────────────────────
   if (isScriptOpen) {
     return (
-      <div className="flex flex-col h-[90%]">
+      <div className="flex flex-col h-[95%]">
         {/* Compact player bar ~20% */}
         <div className="shrink-0 px-4 pt-3 pb-2 bg-white border-b border-gray-100 space-y-2">
           {/* Progress */}
@@ -247,7 +247,7 @@ export function AudioTab({
 
   // ── Layout: full player ──────────────────────────────────────────────────
   return (
-    <div className="flex flex-col h-[90%]">
+    <div className="flex flex-col h-[95%]">
       {/* Spacer + artwork */}
       <div className="flex-1 flex flex-col items-center justify-center px-8 gap-5">
         {trackTotal > 1 && (

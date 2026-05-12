@@ -157,7 +157,7 @@ export function PracticeTab({ sessionId, audioRef, rangeStartMs, rangeEndMs, onC
   );
 
   return (
-    <div className="flex flex-col h-[90%] bg-gray-50">
+    <div className="flex flex-col h-[95%] bg-gray-50">
       {/* Header */}
       <div className="px-5 pt-3.5 pb-3 shrink-0 bg-white border-b border-gray-100 flex items-center justify-between">
         <p className="text-sm font-semibold text-gray-800">
