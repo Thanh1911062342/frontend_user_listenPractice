@@ -9,17 +9,18 @@ import {
   patchConfig,
 } from "../../store/practiceStore";
 import type { Segment, Track } from "../../types";
+import { AudioTab, type AutoAdvance } from "./AudioTab";
 import { PracticeTab } from "./PracticeTab";
-import { ScriptTab } from "./ScriptTab";
 
-type Tab = "practice" | "script";
+type Tab = "audio" | "practice";
 type PlayerState = "loading" | "ready" | "error" | "track_done" | "all_done";
 
 export function PlayerPage() {
   const navigate = useNavigate();
 
   const [config, setConfig] = useState<PracticeConfig | null>(null);
-  const [tab, setTab] = useState<Tab>("practice");
+  const [tab, setTab] = useState<Tab>("audio");
+  const [autoAdvance, setAutoAdvance] = useState<AutoAdvance>("off");
   const [playerState, setPlayerState] = useState<PlayerState>("loading");
   const [errorMsg, setErrorMsg] = useState("");
 
@@ -28,43 +29,38 @@ export function PlayerPage() {
   const [track, setTrack] = useState<(Track & { segments: Segment[] }) | null>(null);
 
   const audioRef = useRef<HTMLAudioElement>(null);
+  const configRef = useRef<PracticeConfig | null>(null);
+  const autoAdvanceRef = useRef<AutoAdvance>("off");
 
-  const isLastTrack = config
-    ? config.trackIndex >= config.trackQueue.length - 1
-    : true;
+  useEffect(() => { configRef.current = config; }, [config]);
+  useEffect(() => { autoAdvanceRef.current = autoAdvance; }, [autoAdvance]);
 
-  // Range start/end in ms computed from segments + config
   const rangeStartMs = useMemo(() => {
     const segs = track?.segments ?? [];
     if (!segs.length) return 0;
-    if (config?.segFrom != null) {
+    if (config?.segFrom != null)
       return segs.find((s) => s.seq === config.segFrom)?.start_ms ?? segs[0].start_ms;
-    }
     return segs[0].start_ms;
   }, [track, config?.segFrom]);
 
   const rangeEndMs = useMemo(() => {
     const segs = track?.segments ?? [];
     if (!segs.length) return 0;
-    if (config?.segTo != null) {
+    if (config?.segTo != null)
       return segs.find((s) => s.seq === config.segTo)?.end_ms ?? segs[segs.length - 1].end_ms;
-    }
     return segs[segs.length - 1].end_ms;
   }, [track, config?.segTo]);
 
-  // Pause audio when leaving "ready" state
   useEffect(() => {
     if (playerState !== "ready") audioRef.current?.pause();
   }, [playerState]);
 
-  // ── Init session ───────────────────────────────────────────────────────
   const initSession = useCallback(async (cfg: PracticeConfig) => {
     const trackId = cfg.trackQueue[cfg.trackIndex];
     setPlayerState("loading");
     setErrorMsg("");
     setSessionId(null);
     setTrack(null);
-
     try {
       const [trackData, exercise] = await Promise.all([
         getTrack(trackId),
@@ -82,6 +78,7 @@ export function PlayerPage() {
         audioObjectUrl = URL.createObjectURL(blob);
       }
       setAudioUrl(audioObjectUrl);
+
       const session = await startSession(
         exercise.id,
         cfg.segFrom ?? undefined,
@@ -95,7 +92,6 @@ export function PlayerPage() {
     }
   }, []);
 
-  // On mount: load config
   useEffect(() => {
     const cfg = loadConfig();
     if (!cfg || cfg.trackQueue.length === 0) {
@@ -106,24 +102,48 @@ export function PlayerPage() {
     initSession(cfg);
   }, []); // eslint-disable-line
 
-  // ── Handlers ──────────────────────────────────────────────────────────
-  const handleSessionComplete = () => setPlayerState("track_done");
-
-  const handleNextTrack = () => {
-    if (!config || isLastTrack) return;
-    const next: PracticeConfig = {
-      ...config,
-      trackIndex: config.trackIndex + 1,
-      segFrom: null,
-      segTo: null,
-    };
+  // ── Navigation ─────────────────────────────────────────────────────────
+  const handleNext = useCallback(() => {
+    const cfg = configRef.current;
+    if (!cfg) return;
+    const total = cfg.trackQueue.length;
+    let nextIndex: number;
+    if (autoAdvanceRef.current === "shuffle") {
+      if (total === 1) {
+        nextIndex = 0;
+      } else {
+        do { nextIndex = Math.floor(Math.random() * total); }
+        while (nextIndex === cfg.trackIndex);
+      }
+    } else {
+      if (cfg.trackIndex >= total - 1) { setPlayerState("all_done"); return; }
+      nextIndex = cfg.trackIndex + 1;
+    }
+    const next: PracticeConfig = { ...cfg, trackIndex: nextIndex, segFrom: null, segTo: null };
     patchConfig(next);
     setConfig(next);
+    setTab("audio");
     initSession(next);
+  }, [initSession]);
+
+  const handlePrev = useCallback(() => {
+    const cfg = configRef.current;
+    if (!cfg || cfg.trackIndex === 0) return;
+    const next: PracticeConfig = { ...cfg, trackIndex: cfg.trackIndex - 1, segFrom: null, segTo: null };
+    patchConfig(next);
+    setConfig(next);
+    setTab("audio");
+    initSession(next);
+  }, [initSession]);
+
+  const handleSessionComplete = () => {
+    if (autoAdvance !== "off") handleNext();
+    else setPlayerState("track_done");
   };
 
-  const handlePracticeAgain = () => {
-    if (config) initSession(config);
+  const handleSwitchTab = (t: Tab) => {
+    if (t === "practice") audioRef.current?.pause();
+    setTab(t);
   };
 
   const handleRangeChange = async (from: number | null, to: number | null) => {
@@ -131,7 +151,6 @@ export function PlayerPage() {
     const next: PracticeConfig = { ...config, segFrom: from, segTo: to };
     patchConfig(next);
     setConfig(next);
-    setTab("practice");
     await initSession(next);
   };
 
@@ -143,23 +162,16 @@ export function PlayerPage() {
   if (!config) return null;
 
   const trackTotal = config.trackQueue.length;
-  const rangeLabel =
-    config.segFrom != null
-      ? config.segTo != null && config.segTo !== config.segFrom
-        ? `Segments ${config.segFrom}–${config.segTo}`
-        : `Segment ${config.segFrom}`
-      : null;
 
   return (
     <div className="flex flex-col h-full min-h-screen">
-      {/* Shared audio element — lives here so both tabs share it */}
       {audioUrl && (
         <audio ref={audioRef} src={audioUrl} preload="auto" className="hidden" />
       )}
 
       {/* Header */}
       <div className="px-5 pt-12 pb-0 bg-white shrink-0">
-        <div className="flex items-center justify-between mb-1">
+        <div className="flex items-center justify-between mb-2">
           <button
             onClick={() => navigate("/setup")}
             className="text-xs text-indigo-500 font-medium truncate max-w-[70%]"
@@ -171,34 +183,19 @@ export function PlayerPage() {
           </button>
         </div>
 
-        <div className="flex items-baseline gap-2 mb-0.5">
-          <h2 className="text-base font-bold text-gray-900 truncate flex-1">
-            {track?.title ?? "Loading…"}
-          </h2>
-          {trackTotal > 1 && (
-            <span className="text-xs text-gray-400 shrink-0 tabular-nums">
-              {config.trackIndex + 1}/{trackTotal}
-            </span>
-          )}
-        </div>
-
-        {rangeLabel && (
-          <p className="text-xs text-indigo-400 mb-1">{rangeLabel}</p>
-        )}
-
         {/* Tabs */}
-        <div className="flex border-b border-gray-100 mt-2">
-          {(["practice", "script"] as Tab[]).map((t) => (
+        <div className="flex border-b border-gray-100">
+          {(["audio", "practice"] as Tab[]).map((t) => (
             <button
               key={t}
-              onClick={() => setTab(t)}
+              onClick={() => handleSwitchTab(t)}
               className={`flex-1 py-2.5 text-sm font-medium border-b-2 transition-colors ${
                 tab === t
                   ? "border-indigo-500 text-indigo-600"
                   : "border-transparent text-gray-400"
               }`}
             >
-              {t === "practice" ? "Practice" : "Script"}
+              {t === "audio" ? "Audio" : "Practice"}
             </button>
           ))}
         </div>
@@ -206,14 +203,12 @@ export function PlayerPage() {
 
       {/* Content */}
       <div className="flex-1 relative overflow-hidden">
-        {/* Loading */}
         {playerState === "loading" && (
           <div className="absolute inset-0 flex items-center justify-center bg-gray-50">
             <div className="w-8 h-8 border-2 border-indigo-400 border-t-transparent rounded-full animate-spin" />
           </div>
         )}
 
-        {/* Error */}
         {playerState === "error" && (
           <div className="absolute inset-0 flex flex-col items-center justify-center px-8 gap-4 bg-gray-50">
             <p className="text-red-500 text-sm text-center">{errorMsg}</p>
@@ -226,20 +221,17 @@ export function PlayerPage() {
           </div>
         )}
 
-        {/* Track done */}
         {playerState === "track_done" && (
           <div className="absolute inset-0 flex flex-col items-center justify-center px-8 gap-6 bg-gray-50">
             <div className="text-center">
               <div className="text-4xl mb-3">✓</div>
               <p className="text-lg font-bold text-gray-900 mb-1">Track Complete!</p>
-              <p className="text-gray-400 text-sm truncate max-w-[280px]">
-                {track?.title}
-              </p>
+              <p className="text-gray-400 text-sm truncate max-w-[280px]">{track?.title}</p>
             </div>
             <div className="flex flex-col gap-3 w-full">
-              {!isLastTrack ? (
+              {config.trackIndex < trackTotal - 1 ? (
                 <button
-                  onClick={handleNextTrack}
+                  onClick={handleNext}
                   className="w-full bg-indigo-600 text-white rounded-2xl py-3.5 font-semibold"
                 >
                   Next Track →
@@ -253,7 +245,7 @@ export function PlayerPage() {
                 </button>
               )}
               <button
-                onClick={handlePracticeAgain}
+                onClick={() => config && initSession(config)}
                 className="w-full border border-gray-200 text-gray-600 rounded-2xl py-3.5 font-semibold text-sm"
               >
                 Practice Again
@@ -262,15 +254,13 @@ export function PlayerPage() {
           </div>
         )}
 
-        {/* All done */}
         {playerState === "all_done" && (
           <div className="absolute inset-0 flex flex-col items-center justify-center px-8 text-center gap-6 bg-gray-50">
             <div>
               <div className="text-5xl mb-4">🎉</div>
               <p className="text-xl font-bold text-gray-900 mb-2">All Done!</p>
               <p className="text-gray-400 text-sm">
-                You've completed all {trackTotal} selected track
-                {trackTotal > 1 ? "s" : ""}.
+                You've completed all {trackTotal} selected track{trackTotal > 1 ? "s" : ""}.
               </p>
             </div>
             <button
@@ -282,37 +272,36 @@ export function PlayerPage() {
           </div>
         )}
 
-        {/* Tab content — both mounted, one hidden to preserve state */}
-        {playerState === "ready" && sessionId && audioUrl && (
+        {playerState === "ready" && track && (
           <>
-            <div
-              className={`absolute inset-0 overflow-hidden ${
-                tab !== "practice" ? "hidden" : ""
-              }`}
-            >
-              <PracticeTab
-                key={sessionId}
-                sessionId={sessionId}
+            <div className={`absolute inset-0 overflow-hidden ${tab !== "audio" ? "hidden" : ""}`}>
+              <AudioTab
                 audioRef={audioRef}
-                rangeStartMs={rangeStartMs}
-                rangeEndMs={rangeEndMs}
-                onComplete={handleSessionComplete}
-              />
-            </div>
-            <div
-              className={`absolute inset-0 overflow-hidden ${
-                tab !== "script" ? "hidden" : ""
-              }`}
-            >
-              <ScriptTab
-                segments={track?.segments ?? []}
+                track={track}
                 segFrom={config.segFrom}
                 segTo={config.segTo}
-                audioRef={audioRef}
-                isActive={tab === "script"}
+                trackIndex={config.trackIndex}
+                trackTotal={trackTotal}
+                isActive={tab === "audio"}
+                autoAdvance={autoAdvance}
+                onSetAutoAdvance={setAutoAdvance}
+                onPrev={handlePrev}
+                onNext={handleNext}
                 onRangeChange={handleRangeChange}
               />
             </div>
+            {sessionId && (
+              <div className={`absolute inset-0 overflow-hidden ${tab !== "practice" ? "hidden" : ""}`}>
+                <PracticeTab
+                  key={sessionId}
+                  sessionId={sessionId}
+                  audioRef={audioRef}
+                  rangeStartMs={rangeStartMs}
+                  rangeEndMs={rangeEndMs}
+                  onComplete={handleSessionComplete}
+                />
+              </div>
+            )}
           </>
         )}
       </div>
