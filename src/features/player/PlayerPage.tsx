@@ -72,7 +72,9 @@ export function PlayerPage() {
       if (!audioObjectUrl) {
         const token = await getAudioToken(trackId);
         const base = import.meta.env.VITE_API_URL ?? "";
-        const resp = await fetch(base + token.url);
+        const resp = await fetch(base + token.url, {
+          headers: { "ngrok-skip-browser-warning": "true" },
+        });
         const blob = await resp.blob();
         await setCachedAudio(trackId, trackData.updated_at, blob);
         audioObjectUrl = URL.createObjectURL(blob);
