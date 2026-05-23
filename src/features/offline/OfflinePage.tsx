@@ -166,7 +166,7 @@ export function OfflinePage() {
               const isPlaying = playingTrackId === item.trackId;
               return (
                 <div
-                  key={item.rawKey}
+                  key={item.key}
                   className="px-4 py-3 bg-white hover:bg-gray-50 flex items-center justify-between gap-3"
                 >
                   <div className="flex-1 min-w-0">
