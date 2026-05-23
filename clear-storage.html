@@ -1,0 +1,32 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Clear Storage</title>
+</head>
+<body>
+    <h1>Clearing all storage...</h1>
+    <script>
+        // Clear IndexedDB
+        const dbs = await indexedDB.databases?.() ?? [];
+        for (const db of dbs) {
+            indexedDB.deleteDatabase(db.name);
+        }
+        
+        // Clear localStorage
+        localStorage.clear();
+        
+        // Clear sessionStorage
+        sessionStorage.clear();
+        
+        // Clear service workers and cache
+        if (navigator.serviceWorker) {
+            const registrations = await navigator.serviceWorker.getRegistrations();
+            for (const reg of registrations) {
+                await reg.unregister();
+            }
+        }
+        
+        document.body.innerHTML = '<h2 style="color: green;">✓ All storage cleared! Close this tab and refresh the app.</h2>';
+    </script>
+</body>
+</html>

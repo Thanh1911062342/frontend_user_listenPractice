@@ -1,61 +1,14 @@
-// IndexedDB cache with AES-GCM encryption
-// Keys are simple: a:trackId (audio), meta:trackId (metadata)
-
+// Simple IndexedDB cache without encryption
 const DB_NAME = "_cache";
 const STORE = "data";
 const DB_VERSION = 1;
 const DEFAULT_TTL = 24 * 60 * 60 * 1000;
-const SALT = "lp-cache-v2";
-const PBKDF2_ITERS = 100000;
 
 interface CacheEntry {
-  ct: string;           // ciphertext (base64)
-  iv: string;           // IV (base64)
+  value: Blob | string;
   type: "blob" | "json";
   exp: number;
 }
-
-// ── Encryption helpers ────────────────────────────────────────────────────────
-
-async function deriveKey(password: string): Promise<CryptoKey> {
-  const token = localStorage.getItem("user_token") || "anon";
-  const material = await crypto.subtle.importKey(
-    "raw",
-    new TextEncoder().encode(token + ":" + password),
-    "PBKDF2",
-    false,
-    ["deriveKey"]
-  );
-  return crypto.subtle.deriveKey(
-    {
-      name: "PBKDF2",
-      salt: new TextEncoder().encode(SALT),
-      iterations: PBKDF2_ITERS,
-      hash: "SHA-256",
-    },
-    material,
-    { name: "AES-GCM", length: 256 },
-    false,
-    ["encrypt", "decrypt"]
-  );
-}
-
-async function encrypt(plaintext: ArrayBuffer, key: CryptoKey): Promise<{ ct: string; iv: string }> {
-  const iv = crypto.getRandomValues(new Uint8Array(12));
-  const ct = await crypto.subtle.encrypt({ name: "AES-GCM", iv }, key, plaintext);
-  return {
-    ct: btoa(String.fromCharCode(...new Uint8Array(ct))),
-    iv: btoa(String.fromCharCode(...iv)),
-  };
-}
-
-async function decrypt(ctBase64: string, ivBase64: string, key: CryptoKey): Promise<ArrayBuffer> {
-  const ct = Uint8Array.from(atob(ctBase64), (c) => c.charCodeAt(0));
-  const iv = Uint8Array.from(atob(ivBase64), (c) => c.charCodeAt(0));
-  return await crypto.subtle.decrypt({ name: "AES-GCM", iv }, key, ct);
-}
-
-// ── IndexedDB helpers ──────────────────────────────────────────────────────────
 
 function openDB(): Promise<IDBDatabase> {
   return new Promise((resolve, reject) => {
@@ -116,8 +69,6 @@ async function dbGetAll(): Promise<{ key: string; entry: CacheEntry }[]> {
   });
 }
 
-// ── Public API ────────────────────────────────────────────────────────────────
-
 export async function getCachedBlob(key: string): Promise<Blob | null> {
   try {
     const entry = await dbGet(key);
@@ -126,11 +77,9 @@ export async function getCachedBlob(key: string): Promise<Blob | null> {
       await dbDelete(key);
       return null;
     }
-    const cryptoKey = await deriveKey(key);
-    const plain = await decrypt(entry.ct as string, entry.iv as string, cryptoKey);
-    return new Blob([plain]);
+    return entry.value as Blob;
   } catch (e) {
-    console.log(`[Cache] Failed to decrypt blob ${key}:`, e);
+    console.log(`[Cache] Failed to get blob ${key}:`, e);
     return null;
   }
 }
@@ -141,19 +90,15 @@ export async function setCachedBlob(
   ttlMs: number = DEFAULT_TTL
 ): Promise<boolean> {
   try {
-    const plain = await blob.arrayBuffer();
-    const cryptoKey = await deriveKey(key);
-    const { ct, iv } = await encrypt(plain, cryptoKey);
     await dbPut(key, {
-      ct,
-      iv,
+      value: blob,
       type: "blob",
       exp: Date.now() + ttlMs,
     });
-    console.log(`[Cache] Encrypted blob ${key}`);
+    console.log(`[Cache] Stored blob ${key}`);
     return true;
   } catch (e) {
-    console.error(`[Cache] Failed to encrypt blob ${key}:`, e);
+    console.error(`[Cache] Failed to store blob ${key}:`, e);
     return false;
   }
 }
@@ -166,11 +111,9 @@ export async function getCachedJson<T>(key: string): Promise<T | null> {
       await dbDelete(key);
       return null;
     }
-    const cryptoKey = await deriveKey(key);
-    const plain = await decrypt(entry.ct as string, entry.iv as string, cryptoKey);
-    return JSON.parse(new TextDecoder().decode(plain)) as T;
+    return JSON.parse(entry.value as string) as T;
   } catch (e) {
-    console.log(`[Cache] Failed to decrypt json ${key}:`, e);
+    console.log(`[Cache] Failed to get json ${key}:`, e);
     return null;
   }
 }
@@ -181,18 +124,15 @@ export async function setCachedJson(
   ttlMs: number = DEFAULT_TTL
 ): Promise<boolean> {
   try {
-    const plain = new TextEncoder().encode(JSON.stringify(value));
-    const cryptoKey = await deriveKey(key);
-    const { ct, iv } = await encrypt(plain.buffer, cryptoKey);
     await dbPut(key, {
-      ct,
-      iv,
+      value: JSON.stringify(value),
       type: "json",
       exp: Date.now() + ttlMs,
     });
+    console.log(`[Cache] Stored json ${key}`);
     return true;
   } catch (e) {
-    console.error(`[Cache] Failed to encrypt json ${key}:`, e);
+    console.error(`[Cache] Failed to store json ${key}:`, e);
     return false;
   }
 }
@@ -209,43 +149,35 @@ export interface CachedAudioInfo {
 export async function listCachedAudio(): Promise<CachedAudioInfo[]> {
   try {
     const allEntries = await dbGetAll();
-    console.log("[Cache] All entries:", allEntries);
     const result: CachedAudioInfo[] = [];
 
     for (const { key, entry } of allEntries) {
-      console.log(`[Cache] Checking key: ${key}, type: ${entry.type}`);
-      if (!key.startsWith("a:") || entry.type !== "blob") {
-        console.log(`[Cache] Skipped ${key} - not audio blob`);
-        continue;
-      }
+      if (!key.startsWith("a:") || entry.type !== "blob") continue;
 
       const trackIdStr = key.substring(2);
       const trackId = parseInt(trackIdStr, 10);
-      if (isNaN(trackId)) {
-        console.log(`[Cache] Invalid trackId from ${key}`);
-        continue;
-      }
+      if (isNaN(trackId)) continue;
 
       const metaKey = `meta:${trackId}`;
-      console.log(`[Cache] Looking for metadata: ${metaKey}`);
-      const meta = await getCachedJson<{ title: string }>(metaKey);
-      if (!meta || !meta.title) {
-        console.log(`[Cache] No metadata found for ${trackId}`);
-        continue;
-      }
+      const metaEntry = await dbGet(metaKey);
+      if (!metaEntry || metaEntry.type !== "json") continue;
 
-      console.log(`[Cache] Found audio: track ${trackId}, title: ${meta.title}`);
-      result.push({
-        key,
-        trackId,
-        title: meta.title,
-        sizeBytes: 0,
-        cachedAtMs: entry.exp - DEFAULT_TTL,
-        expiresAtMs: entry.exp,
-      });
+      try {
+        const meta = JSON.parse(metaEntry.value as string) as { title: string };
+        const blob = entry.value as Blob;
+        result.push({
+          key,
+          trackId,
+          title: meta.title,
+          sizeBytes: blob.size,
+          cachedAtMs: entry.exp - DEFAULT_TTL,
+          expiresAtMs: entry.exp,
+        });
+      } catch (e) {
+        console.log(`[Cache] Failed to parse metadata for ${trackId}:`, e);
+      }
     }
 
-    console.log("[Cache] Final result:", result);
     return result;
   } catch (e) {
     console.error("[Cache] listCachedAudio error:", e);
