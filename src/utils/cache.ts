@@ -337,3 +337,44 @@ export async function isAudioCached(rawKey: string): Promise<boolean> {
     return false;
   }
 }
+
+// Migration: populate index from existing IndexedDB entries
+export async function migrateIndexFromExisting(): Promise<void> {
+  try {
+    const allEntries = await dbGetAll();
+    const audioEntries = allEntries.filter((e) => e.entry.kind === "blob" && !e.key.endsWith(":meta"));
+    const index = getIndex();
+    let updated = false;
+
+    for (const { key: storeKey } of audioEntries) {
+      if (index[storeKey]) continue; // Already indexed
+
+      // Try to find the original key by attempting decryption with pattern "a:N"
+      const metaEntry = allEntries.find((e) => e.key === storeKey + ":meta");
+      if (!metaEntry) continue;
+
+      // Try trackIds from 1 to 10000
+      for (let trackId = 1; trackId <= 10000; trackId++) {
+        const tryKey = `a:${trackId}`;
+        try {
+          const derivedKey = await deriveKey(tryKey);
+          const plain = await decrypt(metaEntry.entry.ct, metaEntry.entry.iv, derivedKey);
+          const meta = JSON.parse(new TextDecoder().decode(plain)) as { trackId: number; title: string };
+          if (meta.trackId === trackId) {
+            addToIndex(storeKey, tryKey);
+            updated = true;
+            break;
+          }
+        } catch {
+          // Wrong key, try next
+        }
+      }
+    }
+
+    if (updated) {
+      setIndex(index);
+    }
+  } catch {
+    // Silent fail
+  }
+}

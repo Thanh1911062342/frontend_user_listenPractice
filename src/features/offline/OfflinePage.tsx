@@ -11,6 +11,7 @@ import {
   getCachedBlob,
   getCachedAudioMeta,
   setCachedAudioMeta,
+  migrateIndexFromExisting,
   type CachedAudioInfo,
 } from "../../utils/cache";
 import type { Track } from "../../types";
@@ -32,7 +33,11 @@ export function OfflinePage() {
   const [isPlaying, setIsPlaying] = useState(false);
 
   useEffect(() => {
-    loadOfflineItems();
+    const init = async () => {
+      await migrateIndexFromExisting();
+      await loadOfflineItems();
+    };
+    init();
   }, []);
 
   const loadOfflineItems = async () => {
