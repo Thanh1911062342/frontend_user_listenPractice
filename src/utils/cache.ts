@@ -77,7 +77,12 @@ export async function getCachedBlob(key: string): Promise<Blob | null> {
       await dbDelete(key);
       return null;
     }
-    return entry.value as Blob;
+    const value = entry.value;
+    // IndexedDB may serialize Blob to ArrayBuffer, convert back
+    if (value instanceof ArrayBuffer) {
+      return new Blob([value]);
+    }
+    return value as Blob;
   } catch (e) {
     console.log(`[Cache] Failed to get blob ${key}:`, e);
     return null;
