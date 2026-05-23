@@ -2,6 +2,7 @@ import { BrowserRouter, Navigate, Route, Routes } from "react-router-dom";
 import { LoginPage } from "./features/auth/LoginPage";
 import { PlayerPage } from "./features/player/PlayerPage";
 import { SetupPage } from "./features/setup/SetupPage";
+import { OfflinePage } from "./features/offline/OfflinePage";
 import { PhoneFrame } from "./shared/PhoneFrame";
 import { ProtectedRoute } from "./shared/ProtectedRoute";
 
@@ -19,6 +20,7 @@ export default function App() {
         >
           <Route index element={<PlayerPage />} />
           <Route path="setup" element={<SetupPage />} />
+          <Route path="offline" element={<OfflinePage />} />
         </Route>
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>

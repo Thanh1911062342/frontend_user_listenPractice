@@ -30,8 +30,12 @@ export function PlayerPage() {
   const [errorMsg, setErrorMsg] = useState("");
 
   const [audioUrl, setAudioUrl] = useState("");
+  const [audioBlob, setAudioBlob] = useState<Blob | null>(null);
   const [sessionId, setSessionId] = useState<number | null>(null);
   const [track, setTrack] = useState<(Track & { segments: Segment[] }) | null>(null);
+
+  const [isDownloading, setIsDownloading] = useState(false);
+  const [downloadError, setDownloadError] = useState("");
 
   const audioRef = useRef<HTMLAudioElement>(null);
   const configRef = useRef<PracticeConfig | null>(null);
@@ -94,17 +98,17 @@ export function PlayerPage() {
         setTrack(trackData);
       }
 
-      let audioBlob = await getCachedBlob(audioKey);
-      if (!audioBlob) {
+      let blob = await getCachedBlob(audioKey);
+      if (!blob) {
         const token = await getAudioToken(trackId);
         const base  = import.meta.env.VITE_API_URL ?? "";
         const resp  = await fetch(base + token.url, {
           headers: { "ngrok-skip-browser-warning": "true" },
         });
-        audioBlob = await resp.blob();
-        await setCachedBlob(audioKey, audioBlob);
+        blob = await resp.blob();
       }
-      setAudioUrl(URL.createObjectURL(audioBlob));
+      setAudioBlob(blob);
+      setAudioUrl(URL.createObjectURL(blob));
       setPlayerState("ready");
     } catch {
       setErrorMsg("Failed to load. Please check your connection.");
@@ -174,6 +178,21 @@ export function PlayerPage() {
     await initSession(next);
   };
 
+  const handleDownloadAudio = useCallback(async () => {
+    if (!track || !audioBlob || !config) return;
+    setIsDownloading(true);
+    setDownloadError("");
+    try {
+      const trackId = config.trackQueue[config.trackIndex];
+      const audioKey = `a:${trackId}`;
+      await setCachedBlob(audioKey, audioBlob);
+    } catch (err) {
+      setDownloadError("Failed to download");
+    } finally {
+      setIsDownloading(false);
+    }
+  }, [track, audioBlob, config]);
+
   const logout = () => {
     localStorage.removeItem("user_token");
     navigate("/login");
@@ -194,13 +213,25 @@ export function PlayerPage() {
         <div className="flex items-center justify-between mb-2">
           <button
             onClick={() => navigate("/setup")}
-            className="text-xs text-indigo-500 font-medium truncate max-w-[70%]"
+            className="text-xs text-indigo-500 font-medium truncate max-w-[50%]"
           >
             ← {config.categoryName}
           </button>
-          <button onClick={logout} className="text-xs text-gray-400">
-            Logout
-          </button>
+          <div className="flex items-center gap-2">
+            {playerState === "ready" && (
+              <button
+                onClick={handleDownloadAudio}
+                disabled={isDownloading}
+                title={isDownloading ? "Downloading..." : "Download for offline"}
+                className="text-lg text-gray-400 hover:text-indigo-600 disabled:opacity-50"
+              >
+                ⬇️
+              </button>
+            )}
+            <button onClick={logout} className="text-xs text-gray-400">
+              Logout
+            </button>
+          </div>
         </div>
 
         {/* Tabs */}

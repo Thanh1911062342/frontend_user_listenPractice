@@ -59,6 +59,27 @@ async function dbDelete(storeKey: string): Promise<void> {
   });
 }
 
+async function dbGetAll(): Promise<{ key: string; entry: Entry }[]> {
+  const db = await openDB();
+  return new Promise((resolve) => {
+    const tx = db.transaction(STORE);
+    const store = tx.objectStore(STORE);
+    const result: { key: string; entry: Entry }[] = [];
+
+    const req = store.openCursor();
+    req.onsuccess = (event) => {
+      const cursor = (event.target as IDBRequest).result as IDBCursorWithValue;
+      if (cursor) {
+        result.push({ key: cursor.key as string, entry: cursor.value as Entry });
+        cursor.continue();
+      }
+    };
+
+    tx.oncomplete = () => resolve(result);
+    tx.onerror = () => resolve([]);
+  });
+}
+
 // ── Crypto helpers ───────────────────────────────────────────────────────────
 
 async function hashKey(rawKey: string): Promise<string> {
@@ -182,6 +203,37 @@ export async function setCachedJson(
       exp:  Date.now() + ttlMs,
       kind: "json",
     });
+  } catch {
+    // non-fatal
+  }
+}
+
+export interface CachedAudioInfo {
+  rawKey: string;
+  sizeBytes: number;
+  cachedAtMs: number;
+  expiresAtMs: number;
+}
+
+export async function listCachedAudio(): Promise<CachedAudioInfo[]> {
+  try {
+    const allEntries = await dbGetAll();
+    const audioEntries = allEntries.filter((e) => e.entry.kind === "blob");
+    return audioEntries.map((e) => ({
+      rawKey: e.key,
+      sizeBytes: new Uint8Array(e.entry.ct).byteLength,
+      cachedAtMs: e.entry.exp - DEFAULT_TTL,
+      expiresAtMs: e.entry.exp,
+    }));
+  } catch {
+    return [];
+  }
+}
+
+export async function deleteCachedAudio(rawKey: string): Promise<void> {
+  try {
+    const storeKey = await hashKey(rawKey);
+    await dbDelete(storeKey);
   } catch {
     // non-fatal
   }

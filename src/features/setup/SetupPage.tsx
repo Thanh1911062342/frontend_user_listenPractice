@@ -84,12 +84,21 @@ export function SetupPage() {
   if (step === "category") {
     return (
       <div className="flex flex-col h-full min-h-screen bg-gray-50">
-        <div className="bg-white px-6 pt-14 pb-5 border-b border-gray-100">
-          <p className="text-xs text-indigo-500 font-semibold tracking-widest uppercase mb-1">
-            New Session
-          </p>
-          <h1 className="text-2xl font-bold text-gray-900">Categories</h1>
-          <p className="text-gray-400 text-sm mt-0.5">Choose a category</p>
+        <div className="bg-white px-6 pt-14 pb-5 border-b border-gray-100 flex items-start justify-between">
+          <div>
+            <p className="text-xs text-indigo-500 font-semibold tracking-widest uppercase mb-1">
+              New Session
+            </p>
+            <h1 className="text-2xl font-bold text-gray-900">Categories</h1>
+            <p className="text-gray-400 text-sm mt-0.5">Choose a category</p>
+          </div>
+          <button
+            onClick={() => navigate("/offline")}
+            title="Offline Content"
+            className="text-lg text-gray-400 hover:text-indigo-600 mt-1 shrink-0"
+          >
+            📱
+          </button>
         </div>
 
         <div className="flex-1 overflow-y-auto px-5 py-5 pb-8 space-y-3">
