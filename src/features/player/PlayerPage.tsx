@@ -49,8 +49,7 @@ export function PlayerPage() {
   useEffect(() => {
     if (!track || !config) return;
     const trackId = config.trackQueue[config.trackIndex];
-    const audioKey = `a:${trackId}`;
-    isAudioCached(audioKey).then((cached) => {
+    isAudioCached(trackId).then((cached) => {
       setDownloadStatus(cached ? "downloaded" : "idle");
     });
   }, [track, config]);
@@ -202,7 +201,7 @@ export function PlayerPage() {
         setDownloadStatus("idle");
         return;
       }
-      const metaSaved = await setCachedAudioMeta(audioKey, { trackId, title: track.title });
+      const metaSaved = await setCachedAudioMeta(trackId, { title: track.title });
       if (!metaSaved) {
         setDownloadError("Failed to save metadata");
         setDownloadStatus("idle");

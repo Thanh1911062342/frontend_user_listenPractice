@@ -9,16 +9,12 @@ import {
   setCachedBlob,
   setCachedJson,
   getCachedBlob,
-  getCachedAudioMeta,
   setCachedAudioMeta,
-  migrateIndexFromExisting,
   type CachedAudioInfo,
 } from "../../utils/cache";
 import type { Track } from "../../types";
 
 interface OfflineItem extends CachedAudioInfo {
-  trackId: number;
-  title: string;
   hasUpdate?: boolean;
 }
 
@@ -33,11 +29,7 @@ export function OfflinePage() {
   const [isPlaying, setIsPlaying] = useState(false);
 
   useEffect(() => {
-    const init = async () => {
-      await migrateIndexFromExisting();
-      await loadOfflineItems();
-    };
-    init();
+    loadOfflineItems();
   }, []);
 
   const loadOfflineItems = async () => {
@@ -47,23 +39,16 @@ export function OfflinePage() {
       const items: OfflineItem[] = [];
 
       for (const item of cached) {
-        const meta = await getCachedAudioMeta(item.storeKey);
-        if (!meta) continue;
-
         try {
-          const track = await getTrack(meta.trackId);
+          const track = await getTrack(item.trackId);
           const trackUpdatedAt = new Date(track.updated_at).getTime();
           items.push({
             ...item,
-            trackId: meta.trackId,
-            title: meta.title,
             hasUpdate: trackUpdatedAt > item.cachedAtMs,
           });
         } catch {
           items.push({
             ...item,
-            trackId: meta.trackId,
-            title: meta.title,
             hasUpdate: false,
           });
         }
@@ -79,8 +64,8 @@ export function OfflinePage() {
   const handleDelete = async (item: OfflineItem) => {
     if (!confirm(`Delete "${item.title}"?`)) return;
     try {
-      await deleteCachedAudio(item.storeKey);
-      setOfflineItems(offlineItems.filter((o) => o.storeKey !== item.storeKey));
+      await deleteCachedAudio(item.trackId);
+      setOfflineItems(offlineItems.filter((o) => o.trackId !== item.trackId));
     } catch (err) {
       alert("Failed to delete");
     }
@@ -90,7 +75,7 @@ export function OfflinePage() {
     const trackKey = `t:${item.trackId}`;
     const audioKey = `a:${item.trackId}`;
 
-    setUpdatingIds((prev) => new Set(prev).add(item.storeKey));
+    setUpdatingIds((prev) => new Set(prev).add(item.trackId.toString()));
     try {
       // Fetch fresh track data and audio
       const track = await getTrack(item.trackId);
@@ -104,7 +89,7 @@ export function OfflinePage() {
       // Update cache
       await setCachedJson(trackKey, track);
       const blobSaved = await setCachedBlob(audioKey, audioBlob);
-      const metaSaved = await setCachedAudioMeta(audioKey, { trackId: item.trackId, title: track.title });
+      const metaSaved = await setCachedAudioMeta(item.trackId, { title: track.title });
 
       if (!blobSaved || !metaSaved) {
         alert("Failed to update audio or metadata");
@@ -118,7 +103,7 @@ export function OfflinePage() {
     } finally {
       setUpdatingIds((prev) => {
         const next = new Set(prev);
-        next.delete(item.storeKey);
+        next.delete(item.trackId.toString());
         return next;
       });
     }
@@ -130,7 +115,7 @@ export function OfflinePage() {
 
   const handlePlay = async (item: OfflineItem) => {
     try {
-      const blob = await getCachedBlob(`a:${item.trackId}`);
+      const blob = await getCachedBlob(item.key);
       if (!blob) {
         alert("Audio file not found");
         return;
@@ -211,7 +196,7 @@ export function OfflinePage() {
                     )}
                     <button
                       onClick={() => handleUpdate(item)}
-                      disabled={updatingIds.has(item.storeKey)}
+                      disabled={updatingIds.has(item.trackId.toString())}
                       title="Update"
                       className="text-lg text-gray-400 hover:text-indigo-600 disabled:opacity-50 p-1"
                     >
