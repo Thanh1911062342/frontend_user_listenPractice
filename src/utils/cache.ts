@@ -234,7 +234,49 @@ export async function deleteCachedAudio(rawKey: string): Promise<void> {
   try {
     const storeKey = await hashKey(rawKey);
     await dbDelete(storeKey);
+    // Also delete metadata
+    await dbDelete(storeKey + ":meta");
   } catch {
     // non-fatal
+  }
+}
+
+export async function setCachedAudioMeta(
+  rawKey: string,
+  meta: { trackId: number; title: string }
+): Promise<void> {
+  try {
+    const storeKey = await hashKey(rawKey);
+    const key = await deriveKey(rawKey);
+    const plain = new TextEncoder().encode(JSON.stringify(meta));
+    const { ct, iv } = await encrypt(plain.buffer, key);
+    await dbPut(storeKey + ":meta", {
+      v: ENTRY_VERSION,
+      ct,
+      iv,
+      exp: Date.now() + DEFAULT_TTL,
+      kind: "json",
+    });
+  } catch {
+    // non-fatal
+  }
+}
+
+export async function getCachedAudioMeta(
+  rawKey: string
+): Promise<{ trackId: number; title: string } | null> {
+  try {
+    const storeKey = await hashKey(rawKey);
+    const entry = await dbGet(storeKey + ":meta");
+    if (!entry || entry.v !== ENTRY_VERSION) return null;
+    if (Date.now() > entry.exp) {
+      await dbDelete(storeKey + ":meta");
+      return null;
+    }
+    const key = await deriveKey(rawKey);
+    const plain = await decrypt(entry.ct, entry.iv, key);
+    return JSON.parse(new TextDecoder().decode(plain));
+  } catch {
+    return null;
   }
 }

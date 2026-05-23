@@ -7,6 +7,7 @@ import {
   getCachedJson,
   setCachedBlob,
   setCachedJson,
+  setCachedAudioMeta,
 } from "../../utils/cache";
 import {
   type PracticeConfig,
@@ -186,6 +187,7 @@ export function PlayerPage() {
       const trackId = config.trackQueue[config.trackIndex];
       const audioKey = `a:${trackId}`;
       await setCachedBlob(audioKey, audioBlob);
+      await setCachedAudioMeta(audioKey, { trackId, title: track.title });
     } catch (err) {
       setDownloadError("Failed to download");
     } finally {

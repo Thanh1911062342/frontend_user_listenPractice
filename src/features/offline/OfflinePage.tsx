@@ -2,17 +2,22 @@ import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { getTrack } from "../../api/content";
 import { getAudioToken } from "../../api/session";
+import { AudioPlayer } from "../../shared/AudioPlayer";
 import {
   listCachedAudio,
   deleteCachedAudio,
   setCachedBlob,
   setCachedJson,
+  getCachedBlob,
+  getCachedAudioMeta,
+  setCachedAudioMeta,
   type CachedAudioInfo,
 } from "../../utils/cache";
 import type { Track } from "../../types";
 
 interface OfflineItem extends CachedAudioInfo {
-  title?: string;
+  trackId: number;
+  title: string;
   hasUpdate?: boolean;
   isUpdating?: boolean;
 }
@@ -23,6 +28,10 @@ export function OfflinePage() {
   const [isLoading, setIsLoading] = useState(true);
   const [updatingIds, setUpdatingIds] = useState<Set<string>>(new Set());
 
+  const [playingTrackId, setPlayingTrackId] = useState<number | null>(null);
+  const [playingBlob, setPlayingBlob] = useState<Blob | null>(null);
+  const [isPlaying, setIsPlaying] = useState(false);
+
   useEffect(() => {
     loadOfflineItems();
   }, []);
@@ -31,37 +40,38 @@ export function OfflinePage() {
     setIsLoading(true);
     try {
       const cached = await listCachedAudio();
-      const items: OfflineItem[] = cached.map((item) => ({
-        ...item,
-        isUpdating: false,
-      }));
+      const items: OfflineItem[] = [];
 
-      // Load track titles and check for updates
-      for (let i = 0; i < items.length; i++) {
-        const trackId = extractTrackId(items[i].rawKey);
-        if (trackId) {
-          try {
-            const track = await getTrack(trackId);
-            items[i].title = track.title;
-            // Check if track was updated after it was cached
-            const trackUpdatedAt = new Date(track.updated_at).getTime();
-            items[i].hasUpdate = trackUpdatedAt > items[i].cachedAtMs;
-          } catch {
-            // If fetch fails, keep just the rawKey
-          }
+      for (const item of cached) {
+        const meta = await getCachedAudioMeta(item.rawKey);
+        if (!meta) continue;
+
+        try {
+          const track = await getTrack(meta.trackId);
+          const trackUpdatedAt = new Date(track.updated_at).getTime();
+          items.push({
+            ...item,
+            trackId: meta.trackId,
+            title: meta.title,
+            hasUpdate: trackUpdatedAt > item.cachedAtMs,
+            isUpdating: false,
+          });
+        } catch {
+          items.push({
+            ...item,
+            trackId: meta.trackId,
+            title: meta.title,
+            hasUpdate: false,
+            isUpdating: false,
+          });
         }
       }
       setOfflineItems(items);
-    } catch (err) {
-      console.error("Failed to load offline items", err);
+    } catch {
+      // Silent fail - show empty list if loading fails
     } finally {
       setIsLoading(false);
     }
-  };
-
-  const extractTrackId = (rawKey: string): number | null => {
-    const match = rawKey.match(/^a:(\d+)$/);
-    return match ? parseInt(match[1], 10) : null;
   };
 
   const handleDelete = async (item: OfflineItem) => {
@@ -75,17 +85,14 @@ export function OfflinePage() {
   };
 
   const handleUpdate = async (item: OfflineItem) => {
-    const trackId = extractTrackId(item.rawKey);
-    if (!trackId) return;
-
-    const trackKey = `t:${trackId}`;
+    const trackKey = `t:${item.trackId}`;
     const audioKey = item.rawKey;
 
     setUpdatingIds((prev) => new Set(prev).add(item.rawKey));
     try {
       // Fetch fresh track data and audio
-      const track = await getTrack(trackId);
-      const token = await getAudioToken(trackId);
+      const track = await getTrack(item.trackId);
+      const token = await getAudioToken(item.trackId);
       const base = import.meta.env.VITE_API_URL ?? "";
       const resp = await fetch(base + token.url, {
         headers: { "ngrok-skip-browser-warning": "true" },
@@ -95,6 +102,7 @@ export function OfflinePage() {
       // Update cache
       await setCachedJson(trackKey, track);
       await setCachedBlob(audioKey, audioBlob);
+      await setCachedAudioMeta(audioKey, { trackId: item.trackId, title: track.title });
 
       // Reload the list
       await loadOfflineItems();
@@ -109,13 +117,23 @@ export function OfflinePage() {
     }
   };
 
-  const formatSize = (bytes: number): string => {
-    if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
-    return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
-  };
-
   const formatDate = (ms: number): string => {
     return new Date(ms).toLocaleDateString();
+  };
+
+  const handlePlay = async (item: OfflineItem) => {
+    try {
+      const blob = await getCachedBlob(item.rawKey);
+      if (!blob) {
+        alert("Audio file not found");
+        return;
+      }
+      setPlayingTrackId(item.trackId);
+      setPlayingBlob(blob);
+      setIsPlaying(true);
+    } catch (err) {
+      alert("Failed to play audio");
+    }
   };
 
   return (
@@ -149,41 +167,60 @@ export function OfflinePage() {
           </div>
         ) : (
           <div className="divide-y divide-gray-200">
-            {offlineItems.map((item) => (
-              <div
-                key={item.rawKey}
-                className="px-4 py-3 bg-white hover:bg-gray-50 flex items-center justify-between gap-3"
-              >
-                <div className="flex-1 min-w-0">
-                  <p className="text-sm font-medium text-gray-900 truncate">
-                    {item.title || item.rawKey}
-                  </p>
-                  <p className="text-xs text-gray-500">
-                    {formatSize(item.sizeBytes)} • {formatDate(item.cachedAtMs)}
-                  </p>
+            {offlineItems.map((item) => {
+              const isPlaying = playingTrackId === item.trackId;
+              return (
+                <div
+                  key={item.rawKey}
+                  className="px-4 py-3 bg-white hover:bg-gray-50 flex items-center justify-between gap-3"
+                >
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm font-medium text-gray-900 truncate">
+                      {item.title}
+                    </p>
+                    <p className="text-xs text-gray-500">
+                      {formatDate(item.cachedAtMs)}
+                    </p>
+                  </div>
+                  <div className="flex items-center gap-1 shrink-0">
+                    {playingTrackId === item.trackId ? (
+                      <AudioPlayer
+                        blob={playingBlob}
+                        isPlaying={isPlaying}
+                        onPlayingChange={setIsPlaying}
+                        onEnded={() => setPlayingTrackId(null)}
+                      />
+                    ) : (
+                      <button
+                        onClick={() => handlePlay(item)}
+                        title="Play"
+                        className="text-lg text-gray-400 hover:text-indigo-600 p-1"
+                      >
+                        ▶️
+                      </button>
+                    )}
+                    {item.hasUpdate && (
+                      <div className="w-1.5 h-1.5 rounded-full bg-yellow-500" />
+                    )}
+                    <button
+                      onClick={() => handleUpdate(item)}
+                      disabled={updatingIds.has(item.rawKey)}
+                      title="Update"
+                      className="text-lg text-gray-400 hover:text-indigo-600 disabled:opacity-50 p-1"
+                    >
+                      🔄
+                    </button>
+                    <button
+                      onClick={() => handleDelete(item)}
+                      title="Delete"
+                      className="text-lg text-gray-400 hover:text-red-600 p-1"
+                    >
+                      🗑️
+                    </button>
+                  </div>
                 </div>
-                <div className="flex items-center gap-1 shrink-0">
-                  {item.hasUpdate && (
-                    <div className="w-1.5 h-1.5 rounded-full bg-yellow-500" />
-                  )}
-                  <button
-                    onClick={() => handleUpdate(item)}
-                    disabled={updatingIds.has(item.rawKey)}
-                    title="Update"
-                    className="text-lg text-gray-400 hover:text-indigo-600 disabled:opacity-50 p-1"
-                  >
-                    🔄
-                  </button>
-                  <button
-                    onClick={() => handleDelete(item)}
-                    title="Delete"
-                    className="text-lg text-gray-400 hover:text-red-600 p-1"
-                  >
-                    🗑️
-                  </button>
-                </div>
-              </div>
-            ))}
+              );
+            })}
           </div>
         )}
       </div>
