@@ -109,19 +109,23 @@ export function PlayerPage() {
       }
 
       let blob = await getCachedBlob(audioKey);
+      console.log("[Player] Cached blob:", blob);
       if (!blob) {
         console.log("[Player] No cached blob, fetching audio...");
         const token = await getAudioToken(trackId);
         console.log("[Player] Got token:", token);
         const base  = import.meta.env.VITE_API_URL ?? "";
-        console.log("[Player] Base URL:", base);
+        console.log("[Player] Base URL:", base, "token.url:", token.url);
         const resp  = await fetch(base + token.url, {
           headers: { "ngrok-skip-browser-warning": "true" },
         });
-        console.log("[Player] Fetch response:", resp.status);
+        console.log("[Player] Fetch response:", resp.status, resp.ok);
+        if (!resp.ok) throw new Error(`Audio fetch failed: ${resp.status}`);
         blob = await resp.blob();
-        console.log("[Player] Got blob:", blob.size, "bytes");
+        console.log("[Player] Got blob:", blob, "size:", blob?.size, "bytes");
       }
+      console.log("[Player] Before createObjectURL, blob:", blob, typeof blob);
+      if (!blob) throw new Error("blob is null");
       setAudioBlob(blob);
       setAudioUrl(URL.createObjectURL(blob));
       setPlayerState("ready");
