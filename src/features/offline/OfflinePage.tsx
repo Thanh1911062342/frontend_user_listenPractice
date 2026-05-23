@@ -2,7 +2,8 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { getTrack } from "../../api/content";
 import { getAudioToken } from "../../api/session";
-import { AudioTab, type AutoAdvance } from "../player/AudioTab";
+import { AudioTab, type AutoAdvance } from "../../shared/AudioTab";
+import { MiniAudioPlayer } from "../../shared/MiniAudioPlayer";
 import { TrackListSelector } from "../../shared/TrackListSelector";
 import {
   listCachedAudio,
@@ -29,6 +30,7 @@ export function OfflinePage() {
   const [isLoading, setIsLoading] = useState(true);
   const [updatingIds, setUpdatingIds] = useState<Set<number>>(new Set());
   const [selectedIds, setSelectedIds] = useState<number[]>([]);
+  const [view, setView] = useState<"audio" | "list">("list");
 
   // Playback state
   const [trackQueue, setTrackQueue] = useState<number[]>([]);
@@ -115,6 +117,11 @@ export function OfflinePage() {
 
   const handleStart = async () => {
     if (selectedIds.length === 0) return;
+    const sameQueue =
+      selectedIds.length === trackQueue.length &&
+      selectedIds.every((id, i) => id === trackQueue[i]);
+    setView("audio");
+    if (sameQueue && track) return; // Just expand mini player
     setTrackQueue(selectedIds);
     setTrackIndex(0);
     await loadTrack(selectedIds[0]);
@@ -151,10 +158,7 @@ export function OfflinePage() {
   }, [loadTrack]);
 
   const handleExitPlayer = () => {
-    setTrackQueue([]);
-    setTrack(null);
-    setAudioUrl("");
-    setPlayerState("loading");
+    setView("list");
   };
 
   const handleDelete = async (item: OfflineItem) => {
@@ -207,15 +211,18 @@ export function OfflinePage() {
     return new Date(ms).toLocaleDateString();
   };
 
+  // Single audio element shared across views
+  const audioElement = audioUrl && (
+    <audio ref={audioRef} src={audioUrl} preload="auto" className="hidden" />
+  );
+
   // ── Playback view ─────────────────────────────────────────────────────
-  if (trackQueue.length > 0) {
+  if (view === "audio") {
     const trackTotal = trackQueue.length;
 
     return (
       <div className="flex flex-col h-full min-h-screen">
-        {audioUrl && (
-          <audio ref={audioRef} src={audioUrl} preload="auto" className="hidden" />
-        )}
+        {audioElement}
 
         {/* Header */}
         <div className="px-5 pt-12 pb-3 bg-white shrink-0 border-b border-gray-100">
@@ -291,12 +298,27 @@ export function OfflinePage() {
   // ── List view ─────────────────────────────────────────────────────────
   return (
     <div className="flex flex-col h-full min-h-screen bg-gray-50">
-      <div className="bg-white px-6 pt-14 pb-4 border-b border-gray-100">
+      {audioElement}
+
+      {/* Mini player at top - only when a track is loaded */}
+      {track && (
+        <MiniAudioPlayer
+          audioRef={audioRef}
+          title={track.title}
+          trackIndex={trackIndex}
+          trackTotal={trackQueue.length}
+          onPrev={handlePrev}
+          onNext={handleNext}
+          onExpand={() => setView("audio")}
+        />
+      )}
+
+      <div className={`bg-white px-6 ${track ? "pt-4" : "pt-14"} pb-4 border-b border-gray-100`}>
         <button
           onClick={() => navigate("/setup")}
           className="text-indigo-500 text-sm font-medium mb-3 flex items-center gap-1"
         >
-          ‹ Back
+          ‹ Categories
         </button>
         <div className="flex items-end justify-between gap-3">
           <div>

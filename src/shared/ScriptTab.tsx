@@ -1,5 +1,5 @@
 import { RefObject, useEffect, useMemo, useRef, useState } from "react";
-import type { Segment } from "../../types";
+import type { Segment } from "../types";
 
 function fmtMs(ms: number) {
   const s = Math.floor(ms / 1000);

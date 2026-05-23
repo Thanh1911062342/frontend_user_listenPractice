@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { getTrack } from "../../api/content";
+import { useQuery } from "@tanstack/react-query";
+import { getCategoryBySlug, getTrack } from "../../api/content";
 import { getAudioToken, getExercise, startSession } from "../../api/session";
 import {
   getCachedBlob,
@@ -16,7 +17,9 @@ import {
   patchConfig,
 } from "../../store/practiceStore";
 import type { Segment, Track } from "../../types";
-import { AudioTab, type AutoAdvance } from "./AudioTab";
+import { AudioTab, type AutoAdvance } from "../../shared/AudioTab";
+import { MiniAudioPlayer } from "../../shared/MiniAudioPlayer";
+import { TrackListSelector } from "../../shared/TrackListSelector";
 import { PracticeTab } from "./PracticeTab";
 
 type Tab = "audio" | "practice";
@@ -39,12 +42,30 @@ export function PlayerPage() {
   const [downloadStatus, setDownloadStatus] = useState<"idle" | "downloading" | "downloaded">("idle");
   const [downloadError, setDownloadError] = useState("");
 
+  // List view state
+  const [view, setView] = useState<"audio" | "list">("audio");
+  const [listSelectedIds, setListSelectedIds] = useState<number[]>([]);
+
   const audioRef = useRef<HTMLAudioElement>(null);
   const configRef = useRef<PracticeConfig | null>(null);
   const autoAdvanceRef = useRef<AutoAdvance>("off");
 
   useEffect(() => { configRef.current = config; }, [config]);
   useEffect(() => { autoAdvanceRef.current = autoAdvance; }, [autoAdvance]);
+
+  // Fetch tracks for current category (used in list view)
+  const categoryQuery = useQuery({
+    queryKey: ["category", config?.categorySlug],
+    queryFn: () => getCategoryBySlug(config!.categorySlug),
+    enabled: !!config && view === "list",
+  });
+
+  // Sync listSelectedIds with current trackQueue when entering list view
+  useEffect(() => {
+    if (view === "list" && config) {
+      setListSelectedIds(config.trackQueue);
+    }
+  }, [view, config]);
 
   useEffect(() => {
     if (!track || !config) return;
@@ -234,21 +255,138 @@ export function PlayerPage() {
     navigate("/login");
   };
 
+  // List view handlers
+  const toggleListTrack = (id: number) =>
+    setListSelectedIds((prev) =>
+      prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]
+    );
+
+  const handleApplyList = () => {
+    if (listSelectedIds.length === 0 || !config) return;
+    const sameQueue =
+      listSelectedIds.length === config.trackQueue.length &&
+      listSelectedIds.every((id, i) => id === config.trackQueue[i]);
+    if (sameQueue) {
+      setView("audio");
+      return;
+    }
+    const next: PracticeConfig = {
+      ...config,
+      trackQueue: listSelectedIds,
+      trackIndex: 0,
+      segFrom: null,
+      segTo: null,
+    };
+    patchConfig(next);
+    setConfig(next);
+    setTab("audio");
+    setView("audio");
+    initSession(next);
+  };
+
   if (!config) return null;
 
   const trackTotal = config.trackQueue.length;
 
+  // Single audio element shared across views
+  const audioElement = audioUrl && (
+    <audio ref={audioRef} src={audioUrl} preload="auto" className="hidden" />
+  );
+
+  // ── List view ─────────────────────────────────────────────────────────
+  if (view === "list") {
+    const categoryTracks = categoryQuery.data?.tracks ?? [];
+    return (
+      <div className="flex flex-col h-full min-h-screen bg-gray-50">
+        {audioElement}
+
+        {/* Mini player at top */}
+        <MiniAudioPlayer
+          audioRef={audioRef}
+          title={track?.title}
+          trackIndex={config.trackIndex}
+          trackTotal={config.trackQueue.length}
+          onPrev={handlePrev}
+          onNext={handleNext}
+          onExpand={() => setView("audio")}
+        />
+
+        {/* Header */}
+        <div className="bg-white px-6 pt-4 pb-4 border-b border-gray-100">
+          <button
+            onClick={() => navigate("/setup")}
+            className="text-indigo-500 text-sm font-medium mb-3 flex items-center gap-1"
+          >
+            ‹ Categories
+          </button>
+          <div className="flex items-end justify-between gap-3">
+            <div>
+              <h1 className="text-xl font-bold text-gray-900">{config.categoryName}</h1>
+              <p className="text-gray-400 text-sm mt-0.5">
+                {listSelectedIds.length === 0
+                  ? "Select tracks to practice"
+                  : `${listSelectedIds.length} track${listSelectedIds.length > 1 ? "s" : ""} selected`}
+              </p>
+            </div>
+            {categoryTracks.length > 1 && (
+              <button
+                onClick={() =>
+                  setListSelectedIds(
+                    listSelectedIds.length === categoryTracks.length ? [] : categoryTracks.map((t) => t.id)
+                  )
+                }
+                className="text-sm text-indigo-500 font-medium pb-1 shrink-0"
+              >
+                {listSelectedIds.length === categoryTracks.length ? "Clear all" : "Select all"}
+              </button>
+            )}
+          </div>
+        </div>
+
+        {/* Tracks list */}
+        <div className="flex-1 overflow-y-auto px-5 py-4 pb-36 space-y-2">
+          {categoryQuery.isLoading && (
+            <div className="flex justify-center pt-20">
+              <div className="w-6 h-6 border-2 border-indigo-400 border-t-transparent rounded-full animate-spin" />
+            </div>
+          )}
+          <TrackListSelector
+            items={[...categoryTracks].sort((a, b) => a.id - b.id).map((t) => ({
+              id: t.id,
+              title: t.title,
+              description: t.description ?? undefined,
+            }))}
+            selectedIds={listSelectedIds}
+            onToggle={toggleListTrack}
+          />
+        </div>
+
+        {/* Apply button */}
+        <div className="sticky bottom-0 px-5 pb-10 pt-3 bg-white border-t border-gray-100">
+          <button
+            onClick={handleApplyList}
+            disabled={listSelectedIds.length === 0}
+            className="w-full bg-indigo-600 text-white rounded-2xl py-3.5 font-bold text-base disabled:opacity-40 transition-opacity"
+          >
+            {listSelectedIds.length === 0
+              ? "Select tracks"
+              : `Apply  ·  ${listSelectedIds.length} track${listSelectedIds.length > 1 ? "s" : ""}`}
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  // ── Audio view ────────────────────────────────────────────────────────
   return (
     <div className="flex flex-col h-full min-h-screen">
-      {audioUrl && (
-        <audio ref={audioRef} src={audioUrl} preload="auto" className="hidden" />
-      )}
+      {audioElement}
 
       {/* Header */}
       <div className="px-5 pt-12 pb-0 bg-white shrink-0">
         <div className="flex items-center justify-between mb-2">
           <button
-            onClick={() => navigate("/setup")}
+            onClick={() => setView("list")}
             className="text-xs text-indigo-500 font-medium truncate max-w-[50%]"
           >
             ← {config.categoryName}

@@ -1,5 +1,5 @@
 import { RefObject, useEffect, useRef, useState } from "react";
-import type { Segment, Track } from "../../types";
+import type { Segment, Track } from "../types";
 import { ScriptTab } from "./ScriptTab";
 
 export type AutoAdvance = "off" | "sequential" | "shuffle";
