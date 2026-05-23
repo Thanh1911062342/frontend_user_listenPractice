@@ -10,6 +10,7 @@ const ENTRY_VERSION = 1;
 const DEFAULT_TTL   = 24 * 60 * 60 * 1000;
 const SALT_TEXT     = "lp-cache-v1";
 const PBKDF2_ITERS  = 1000;
+const INDEX_KEY     = "cache_index";
 
 interface Entry {
   v:    number;       // schema version
@@ -78,6 +79,41 @@ async function dbGetAll(): Promise<{ key: string; entry: Entry }[]> {
     tx.oncomplete = () => resolve(result);
     tx.onerror = () => resolve([]);
   });
+}
+
+// ── Index management (for metadata retrieval) ────────────────────────────────
+
+function getIndex(): Record<string, string> {
+  try {
+    const data = localStorage.getItem(INDEX_KEY);
+    return data ? JSON.parse(data) : {};
+  } catch {
+    return {};
+  }
+}
+
+function setIndex(index: Record<string, string>): void {
+  try {
+    localStorage.setItem(INDEX_KEY, JSON.stringify(index));
+  } catch {
+    // non-fatal
+  }
+}
+
+function addToIndex(storeKey: string, rawKey: string): void {
+  const index = getIndex();
+  index[storeKey] = rawKey;
+  setIndex(index);
+}
+
+function getFromIndex(storeKey: string): string | null {
+  return getIndex()[storeKey] ?? null;
+}
+
+function removeFromIndex(storeKey: string): void {
+  const index = getIndex();
+  delete index[storeKey];
+  setIndex(index);
 }
 
 // ── Crypto helpers ───────────────────────────────────────────────────────────
@@ -164,6 +200,7 @@ export async function setCachedBlob(
       exp:  Date.now() + ttlMs,
       kind: "blob",
     });
+    addToIndex(storeKey, rawKey);
     return true;
   } catch {
     return false;
@@ -210,7 +247,7 @@ export async function setCachedJson(
 }
 
 export interface CachedAudioInfo {
-  rawKey: string;
+  storeKey: string;  // already hashed key
   sizeBytes: number;
   cachedAtMs: number;
   expiresAtMs: number;
@@ -219,9 +256,9 @@ export interface CachedAudioInfo {
 export async function listCachedAudio(): Promise<CachedAudioInfo[]> {
   try {
     const allEntries = await dbGetAll();
-    const audioEntries = allEntries.filter((e) => e.entry.kind === "blob");
+    const audioEntries = allEntries.filter((e) => e.entry.kind === "blob" && !e.key.endsWith(":meta"));
     return audioEntries.map((e) => ({
-      rawKey: e.key,
+      storeKey: e.key,
       sizeBytes: new Uint8Array(e.entry.ct).byteLength,
       cachedAtMs: e.entry.exp - DEFAULT_TTL,
       expiresAtMs: e.entry.exp,
@@ -231,12 +268,13 @@ export async function listCachedAudio(): Promise<CachedAudioInfo[]> {
   }
 }
 
-export async function deleteCachedAudio(rawKey: string): Promise<void> {
+export async function deleteCachedAudio(storeKey: string): Promise<void> {
   try {
-    const storeKey = await hashKey(rawKey);
     await dbDelete(storeKey);
     // Also delete metadata
     await dbDelete(storeKey + ":meta");
+    // Remove from index
+    removeFromIndex(storeKey);
   } catch {
     // non-fatal
   }
@@ -265,16 +303,18 @@ export async function setCachedAudioMeta(
 }
 
 export async function getCachedAudioMeta(
-  rawKey: string
+  storeKey: string
 ): Promise<{ trackId: number; title: string } | null> {
   try {
-    const storeKey = await hashKey(rawKey);
     const entry = await dbGet(storeKey + ":meta");
     if (!entry || entry.v !== ENTRY_VERSION) return null;
     if (Date.now() > entry.exp) {
       await dbDelete(storeKey + ":meta");
+      removeFromIndex(storeKey);
       return null;
     }
+    const rawKey = getFromIndex(storeKey);
+    if (!rawKey) return null;
     const key = await deriveKey(rawKey);
     const plain = await decrypt(entry.ct, entry.iv, key);
     return JSON.parse(new TextDecoder().decode(plain));

@@ -19,7 +19,6 @@ interface OfflineItem extends CachedAudioInfo {
   trackId: number;
   title: string;
   hasUpdate?: boolean;
-  isUpdating?: boolean;
 }
 
 export function OfflinePage() {
@@ -43,7 +42,7 @@ export function OfflinePage() {
       const items: OfflineItem[] = [];
 
       for (const item of cached) {
-        const meta = await getCachedAudioMeta(item.rawKey);
+        const meta = await getCachedAudioMeta(item.storeKey);
         if (!meta) continue;
 
         try {
@@ -54,7 +53,6 @@ export function OfflinePage() {
             trackId: meta.trackId,
             title: meta.title,
             hasUpdate: trackUpdatedAt > item.cachedAtMs,
-            isUpdating: false,
           });
         } catch {
           items.push({
@@ -62,7 +60,6 @@ export function OfflinePage() {
             trackId: meta.trackId,
             title: meta.title,
             hasUpdate: false,
-            isUpdating: false,
           });
         }
       }
@@ -75,10 +72,10 @@ export function OfflinePage() {
   };
 
   const handleDelete = async (item: OfflineItem) => {
-    if (!confirm(`Delete "${item.title || item.rawKey}"?`)) return;
+    if (!confirm(`Delete "${item.title}"?`)) return;
     try {
-      await deleteCachedAudio(item.rawKey);
-      setOfflineItems(offlineItems.filter((o) => o.rawKey !== item.rawKey));
+      await deleteCachedAudio(item.storeKey);
+      setOfflineItems(offlineItems.filter((o) => o.storeKey !== item.storeKey));
     } catch (err) {
       alert("Failed to delete");
     }
@@ -86,9 +83,9 @@ export function OfflinePage() {
 
   const handleUpdate = async (item: OfflineItem) => {
     const trackKey = `t:${item.trackId}`;
-    const audioKey = item.rawKey;
+    const audioKey = `a:${item.trackId}`;
 
-    setUpdatingIds((prev) => new Set(prev).add(item.rawKey));
+    setUpdatingIds((prev) => new Set(prev).add(item.storeKey));
     try {
       // Fetch fresh track data and audio
       const track = await getTrack(item.trackId);
@@ -116,7 +113,7 @@ export function OfflinePage() {
     } finally {
       setUpdatingIds((prev) => {
         const next = new Set(prev);
-        next.delete(item.rawKey);
+        next.delete(item.storeKey);
         return next;
       });
     }
@@ -128,7 +125,7 @@ export function OfflinePage() {
 
   const handlePlay = async (item: OfflineItem) => {
     try {
-      const blob = await getCachedBlob(item.rawKey);
+      const blob = await getCachedBlob(`a:${item.trackId}`);
       if (!blob) {
         alert("Audio file not found");
         return;
@@ -209,7 +206,7 @@ export function OfflinePage() {
                     )}
                     <button
                       onClick={() => handleUpdate(item)}
-                      disabled={updatingIds.has(item.rawKey)}
+                      disabled={updatingIds.has(item.storeKey)}
                       title="Update"
                       className="text-lg text-gray-400 hover:text-indigo-600 disabled:opacity-50 p-1"
                     >
