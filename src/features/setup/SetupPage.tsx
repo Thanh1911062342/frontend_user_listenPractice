@@ -3,6 +3,7 @@ import { useQuery } from "@tanstack/react-query";
 import { useNavigate } from "react-router-dom";
 import { getCategories, getCategoryBySlug } from "../../api/content";
 import { loadConfig, saveConfig } from "../../store/practiceStore";
+import { TrackListSelector } from "../../shared/TrackListSelector";
 import type { Category } from "../../types";
 
 type Step = "category" | "tracks";
@@ -178,64 +179,25 @@ export function SetupPage() {
 
       <div className="flex-1 overflow-y-auto px-5 py-4 pb-36 space-y-2">
         {trackQuery.isLoading && <Spinner />}
-        {tracks.map((track, index) => {
-          const checked = selectedIds.includes(track.id);
-          const dur = fmtDuration(track.duration_ms);
-          const dot = DIFF_DOT[track.difficulty ?? ""];
-          return (
-            <button
-              key={track.id}
-              onClick={() => toggleTrack(track.id)}
-              className={`w-full text-left rounded-2xl border flex items-center gap-3 px-4 py-3.5 transition-all active:scale-[0.98] ${
-                checked ? "border-indigo-200 bg-indigo-50" : "border-gray-100 bg-white"
-              }`}
-            >
-              {/* Checkbox */}
-              <div
-                className={`w-6 h-6 rounded-full border-2 flex items-center justify-center shrink-0 transition-colors ${
-                  checked ? "border-indigo-500 bg-indigo-500" : "border-gray-200 bg-white"
-                }`}
-              >
-                {checked && (
-                  <svg viewBox="0 0 12 12" fill="none" className="w-3.5 h-3.5">
-                    <path
-                      d="M2 6l3 3 5-5"
-                      stroke="white"
-                      strokeWidth="1.8"
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                    />
-                  </svg>
-                )}
-              </div>
-
-              {/* Number badge */}
-              <span
-                className={`text-xs font-bold w-5 text-center shrink-0 tabular-nums ${
-                  checked ? "text-indigo-400" : "text-gray-300"
-                }`}
-              >
-                {index + 1}
-              </span>
-
-              {/* Title */}
-              <div className="flex-1 min-w-0">
-                <p className={`font-medium text-sm truncate ${checked ? "text-gray-900" : "text-gray-700"}`}>
-                  {track.title}
-                </p>
-                {track.description && (
-                  <p className="text-gray-400 text-xs mt-0.5 line-clamp-1">{track.description}</p>
-                )}
-              </div>
-
-              {/* Meta */}
-              <div className="flex items-center gap-2 shrink-0">
-                {dot && <span className={`w-2 h-2 rounded-full ${dot}`} />}
-                {dur && <span className="text-xs text-gray-400 tabular-nums">{dur}</span>}
-              </div>
-            </button>
-          );
-        })}
+        <TrackListSelector
+          items={tracks.map((track) => {
+            const dur = fmtDuration(track.duration_ms);
+            const dot = DIFF_DOT[track.difficulty ?? ""];
+            return {
+              id: track.id,
+              title: track.title,
+              description: track.description ?? undefined,
+              meta: (
+                <>
+                  {dot && <span className={`w-2 h-2 rounded-full ${dot}`} />}
+                  {dur && <span className="text-xs text-gray-400 tabular-nums">{dur}</span>}
+                </>
+              ),
+            };
+          })}
+          selectedIds={selectedIds}
+          onToggle={toggleTrack}
+        />
       </div>
 
       <div className="sticky bottom-0 px-5 pb-10 pt-3 bg-white border-t border-gray-100">
