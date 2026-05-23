@@ -2,7 +2,12 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { getTrack } from "../../api/content";
 import { getAudioToken, getExercise, startSession } from "../../api/session";
-import { getCachedAudio, setCachedAudio } from "../../utils/audioCache";
+import {
+  getCachedBlob,
+  getCachedJson,
+  setCachedBlob,
+  setCachedJson,
+} from "../../utils/cache";
 import {
   type PracticeConfig,
   loadConfig,
@@ -62,31 +67,44 @@ export function PlayerPage() {
     setSessionId(null);
     setTrack(null);
     try {
-      const [trackData, exercise] = await Promise.all([
-        getTrack(trackId),
-        getExercise(trackId),
-      ]);
-      setTrack(trackData);
+      type TrackWithSegments = Track & { segments: Segment[] };
+      const trackKey = `t:${trackId}`;
+      const audioKey = `a:${trackId}`;
 
-      let audioObjectUrl = await getCachedAudio(trackId, trackData.updated_at);
-      if (!audioObjectUrl) {
+      let trackData: TrackWithSegments;
+      try {
+        const [fresh, exercise] = await Promise.all([
+          getTrack(trackId),
+          getExercise(trackId),
+        ]);
+        trackData = fresh as TrackWithSegments;
+        await setCachedJson(trackKey, trackData);
+        setTrack(trackData);
+
+        const session = await startSession(
+          exercise.id,
+          cfg.segFrom ?? undefined,
+          cfg.segTo ?? undefined
+        );
+        setSessionId(session.id);
+      } catch {
+        const cached = await getCachedJson<TrackWithSegments>(trackKey);
+        if (!cached) throw new Error("offline-no-cache");
+        trackData = cached;
+        setTrack(trackData);
+      }
+
+      let audioBlob = await getCachedBlob(audioKey);
+      if (!audioBlob) {
         const token = await getAudioToken(trackId);
-        const base = import.meta.env.VITE_API_URL ?? "";
-        const resp = await fetch(base + token.url, {
+        const base  = import.meta.env.VITE_API_URL ?? "";
+        const resp  = await fetch(base + token.url, {
           headers: { "ngrok-skip-browser-warning": "true" },
         });
-        const blob = await resp.blob();
-        await setCachedAudio(trackId, trackData.updated_at, blob);
-        audioObjectUrl = URL.createObjectURL(blob);
+        audioBlob = await resp.blob();
+        await setCachedBlob(audioKey, audioBlob);
       }
-      setAudioUrl(audioObjectUrl);
-
-      const session = await startSession(
-        exercise.id,
-        cfg.segFrom ?? undefined,
-        cfg.segTo ?? undefined
-      );
-      setSessionId(session.id);
+      setAudioUrl(URL.createObjectURL(audioBlob));
       setPlayerState("ready");
     } catch {
       setErrorMsg("Failed to load. Please check your connection.");
