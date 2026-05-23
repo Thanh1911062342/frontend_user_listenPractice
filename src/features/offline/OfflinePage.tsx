@@ -101,8 +101,13 @@ export function OfflinePage() {
 
       // Update cache
       await setCachedJson(trackKey, track);
-      await setCachedBlob(audioKey, audioBlob);
-      await setCachedAudioMeta(audioKey, { trackId: item.trackId, title: track.title });
+      const blobSaved = await setCachedBlob(audioKey, audioBlob);
+      const metaSaved = await setCachedAudioMeta(audioKey, { trackId: item.trackId, title: track.title });
+
+      if (!blobSaved || !metaSaved) {
+        alert("Failed to update audio or metadata");
+        return;
+      }
 
       // Reload the list
       await loadOfflineItems();

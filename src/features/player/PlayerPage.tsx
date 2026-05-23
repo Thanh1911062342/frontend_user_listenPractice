@@ -8,6 +8,7 @@ import {
   setCachedBlob,
   setCachedJson,
   setCachedAudioMeta,
+  isAudioCached,
 } from "../../utils/cache";
 import {
   type PracticeConfig,
@@ -35,7 +36,7 @@ export function PlayerPage() {
   const [sessionId, setSessionId] = useState<number | null>(null);
   const [track, setTrack] = useState<(Track & { segments: Segment[] }) | null>(null);
 
-  const [isDownloading, setIsDownloading] = useState(false);
+  const [downloadStatus, setDownloadStatus] = useState<"idle" | "downloading" | "downloaded">("idle");
   const [downloadError, setDownloadError] = useState("");
 
   const audioRef = useRef<HTMLAudioElement>(null);
@@ -44,6 +45,15 @@ export function PlayerPage() {
 
   useEffect(() => { configRef.current = config; }, [config]);
   useEffect(() => { autoAdvanceRef.current = autoAdvance; }, [autoAdvance]);
+
+  useEffect(() => {
+    if (!track || !config) return;
+    const trackId = config.trackQueue[config.trackIndex];
+    const audioKey = `a:${trackId}`;
+    isAudioCached(audioKey).then((cached) => {
+      setDownloadStatus(cached ? "downloaded" : "idle");
+    });
+  }, [track, config]);
 
   const rangeStartMs = useMemo(() => {
     const segs = track?.segments ?? [];
@@ -181,17 +191,27 @@ export function PlayerPage() {
 
   const handleDownloadAudio = useCallback(async () => {
     if (!track || !audioBlob || !config) return;
-    setIsDownloading(true);
+    setDownloadStatus("downloading");
     setDownloadError("");
     try {
       const trackId = config.trackQueue[config.trackIndex];
       const audioKey = `a:${trackId}`;
-      await setCachedBlob(audioKey, audioBlob);
-      await setCachedAudioMeta(audioKey, { trackId, title: track.title });
+      const blobSaved = await setCachedBlob(audioKey, audioBlob);
+      if (!blobSaved) {
+        setDownloadError("Failed to save audio");
+        setDownloadStatus("idle");
+        return;
+      }
+      const metaSaved = await setCachedAudioMeta(audioKey, { trackId, title: track.title });
+      if (!metaSaved) {
+        setDownloadError("Failed to save metadata");
+        setDownloadStatus("idle");
+        return;
+      }
+      setDownloadStatus("downloaded");
     } catch (err) {
       setDownloadError("Failed to download");
-    } finally {
-      setIsDownloading(false);
+      setDownloadStatus("idle");
     }
   }, [track, audioBlob, config]);
 
@@ -221,14 +241,29 @@ export function PlayerPage() {
           </button>
           <div className="flex items-center gap-2">
             {playerState === "ready" && (
-              <button
-                onClick={handleDownloadAudio}
-                disabled={isDownloading}
-                title={isDownloading ? "Downloading..." : "Download for offline"}
-                className="text-lg text-gray-400 hover:text-indigo-600 disabled:opacity-50"
-              >
-                ⬇️
-              </button>
+              <div className="flex items-center gap-1">
+                <button
+                  onClick={handleDownloadAudio}
+                  disabled={downloadStatus === "downloading"}
+                  title={
+                    downloadStatus === "downloading"
+                      ? "Downloading..."
+                      : downloadStatus === "downloaded"
+                        ? "Downloaded"
+                        : "Download for offline"
+                  }
+                  className={`text-lg ${
+                    downloadStatus === "downloaded"
+                      ? "text-green-600"
+                      : "text-gray-400 hover:text-indigo-600"
+                  } disabled:opacity-50`}
+                >
+                  {downloadStatus === "downloading" ? "⏳" : downloadStatus === "downloaded" ? "✓" : "⬇️"}
+                </button>
+                {downloadError && (
+                  <div className="text-xs text-red-500">{downloadError}</div>
+                )}
+              </div>
             )}
             <button onClick={logout} className="text-xs text-gray-400">
               Logout

@@ -151,7 +151,7 @@ export async function setCachedBlob(
   rawKey: string,
   blob: Blob,
   ttlMs: number = DEFAULT_TTL,
-): Promise<void> {
+): Promise<boolean> {
   try {
     const storeKey = await hashKey(rawKey);
     const key      = await deriveKey(rawKey);
@@ -164,8 +164,9 @@ export async function setCachedBlob(
       exp:  Date.now() + ttlMs,
       kind: "blob",
     });
+    return true;
   } catch {
-    // non-fatal
+    return false;
   }
 }
 
@@ -244,7 +245,7 @@ export async function deleteCachedAudio(rawKey: string): Promise<void> {
 export async function setCachedAudioMeta(
   rawKey: string,
   meta: { trackId: number; title: string }
-): Promise<void> {
+): Promise<boolean> {
   try {
     const storeKey = await hashKey(rawKey);
     const key = await deriveKey(rawKey);
@@ -257,8 +258,9 @@ export async function setCachedAudioMeta(
       exp: Date.now() + DEFAULT_TTL,
       kind: "json",
     });
+    return true;
   } catch {
-    // non-fatal
+    return false;
   }
 }
 
@@ -278,5 +280,20 @@ export async function getCachedAudioMeta(
     return JSON.parse(new TextDecoder().decode(plain));
   } catch {
     return null;
+  }
+}
+
+export async function isAudioCached(rawKey: string): Promise<boolean> {
+  try {
+    const storeKey = await hashKey(rawKey);
+    const entry = await dbGet(storeKey);
+    if (!entry || entry.v !== ENTRY_VERSION || entry.kind !== "blob") return false;
+    if (Date.now() > entry.exp) {
+      await dbDelete(storeKey);
+      return false;
+    }
+    return true;
+  } catch {
+    return false;
   }
 }
