@@ -149,21 +149,35 @@ export interface CachedAudioInfo {
 export async function listCachedAudio(): Promise<CachedAudioInfo[]> {
   try {
     const allEntries = await dbGetAll();
+    console.log("[Cache] All entries:", allEntries);
     const result: CachedAudioInfo[] = [];
 
     for (const { key, entry } of allEntries) {
-      if (!key.startsWith("a:") || entry.type !== "blob") continue;
+      console.log(`[Cache] Checking key: ${key}, type: ${entry.type}`);
+      if (!key.startsWith("a:") || entry.type !== "blob") {
+        console.log(`[Cache] Skipped ${key} - not audio blob`);
+        continue;
+      }
 
       const trackIdStr = key.substring(2);
       const trackId = parseInt(trackIdStr, 10);
-      if (isNaN(trackId)) continue;
+      if (isNaN(trackId)) {
+        console.log(`[Cache] Invalid trackId from ${key}`);
+        continue;
+      }
 
       const metaKey = `meta:${trackId}`;
+      console.log(`[Cache] Looking for metadata: ${metaKey}`);
       const metaEntry = await dbGet(metaKey);
-      if (!metaEntry || metaEntry.type !== "json") continue;
+      console.log(`[Cache] Metadata entry:`, metaEntry);
+      if (!metaEntry || metaEntry.type !== "json") {
+        console.log(`[Cache] No metadata found for ${trackId}`);
+        continue;
+      }
 
       try {
         const meta = JSON.parse(metaEntry.value as string) as { title: string };
+        console.log(`[Cache] Found audio: track ${trackId}, title: ${meta.title}`);
         result.push({
           key,
           trackId,
@@ -172,13 +186,15 @@ export async function listCachedAudio(): Promise<CachedAudioInfo[]> {
           cachedAtMs: entry.exp - DEFAULT_TTL,
           expiresAtMs: entry.exp,
         });
-      } catch {
-        // Skip if metadata invalid
+      } catch (e) {
+        console.log(`[Cache] Failed to parse metadata for ${trackId}:`, e);
       }
     }
 
+    console.log("[Cache] Final result:", result);
     return result;
-  } catch {
+  } catch (e) {
+    console.error("[Cache] listCachedAudio error:", e);
     return [];
   }
 }

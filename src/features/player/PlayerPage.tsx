@@ -195,20 +195,25 @@ export function PlayerPage() {
     try {
       const trackId = config.trackQueue[config.trackIndex];
       const audioKey = `a:${trackId}`;
+      console.log(`[Player] Downloading track ${trackId}, size: ${audioBlob.size} bytes`);
       const blobSaved = await setCachedBlob(audioKey, audioBlob);
+      console.log(`[Player] Blob saved: ${blobSaved}`);
       if (!blobSaved) {
         setDownloadError("Failed to save audio");
         setDownloadStatus("idle");
         return;
       }
       const metaSaved = await setCachedAudioMeta(trackId, { title: track.title });
+      console.log(`[Player] Metadata saved: ${metaSaved}`);
       if (!metaSaved) {
         setDownloadError("Failed to save metadata");
         setDownloadStatus("idle");
         return;
       }
+      console.log(`[Player] Download complete for track ${trackId}`);
       setDownloadStatus("downloaded");
     } catch (err) {
+      console.error("[Player] Download error:", err);
       setDownloadError("Failed to download");
       setDownloadStatus("idle");
     }

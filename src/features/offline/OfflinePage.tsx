@@ -36,6 +36,7 @@ export function OfflinePage() {
     setIsLoading(true);
     try {
       const cached = await listCachedAudio();
+      console.log("[Offline] Cached audio list:", cached);
       const items: OfflineItem[] = [];
 
       for (const item of cached) {
@@ -46,16 +47,18 @@ export function OfflinePage() {
             ...item,
             hasUpdate: trackUpdatedAt > item.cachedAtMs,
           });
-        } catch {
+        } catch (e) {
+          console.log("[Offline] Failed to fetch track", item.trackId, e);
           items.push({
             ...item,
             hasUpdate: false,
           });
         }
       }
+      console.log("[Offline] Final items:", items);
       setOfflineItems(items);
-    } catch {
-      // Silent fail - show empty list if loading fails
+    } catch (e) {
+      console.error("[Offline] Load error:", e);
     } finally {
       setIsLoading(false);
     }
