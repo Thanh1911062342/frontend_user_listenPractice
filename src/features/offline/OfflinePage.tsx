@@ -300,7 +300,17 @@ export function OfflinePage() {
     <div className="flex flex-col h-full min-h-screen bg-gray-50">
       {audioElement}
 
-      {/* Mini player at top - only when a track is loaded */}
+      {/* Top bar with back button */}
+      <div className="bg-white px-6 pt-12 pb-2 shrink-0">
+        <button
+          onClick={() => navigate("/setup")}
+          className="text-indigo-500 text-sm font-medium flex items-center gap-1"
+        >
+          ‹ Categories
+        </button>
+      </div>
+
+      {/* Mini player below back button - only when a track is loaded */}
       {track && (
         <MiniAudioPlayer
           audioRef={audioRef}
@@ -313,13 +323,7 @@ export function OfflinePage() {
         />
       )}
 
-      <div className={`bg-white px-6 ${track ? "pt-4" : "pt-14"} pb-4 border-b border-gray-100`}>
-        <button
-          onClick={() => navigate("/setup")}
-          className="text-indigo-500 text-sm font-medium mb-3 flex items-center gap-1"
-        >
-          ‹ Categories
-        </button>
+      <div className="bg-white px-6 pt-3 pb-4 border-b border-gray-100">
         <div className="flex items-end justify-between gap-3">
           <div>
             <h1 className="text-xl font-bold text-gray-900">Offline Content</h1>

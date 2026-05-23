@@ -69,7 +69,7 @@ export function MiniAudioPlayer({
   const progress = duration > 0 ? currentMs / duration : 0;
 
   return (
-    <div className="bg-white border-b border-gray-100 shadow-sm pt-12 shrink-0">
+    <div className="bg-white border-b border-gray-100 shadow-sm shrink-0">
       {/* Progress bar */}
       <div
         ref={progressBarRef}
