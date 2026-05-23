@@ -9,8 +9,8 @@ const SALT = "lp-cache-v2";
 const PBKDF2_ITERS = 100000;
 
 interface CacheEntry {
-  ct: ArrayBuffer;      // ciphertext
-  iv: ArrayBuffer;      // IV
+  ct: string;           // ciphertext (base64)
+  iv: string;           // IV (base64)
   type: "blob" | "json";
   exp: number;
 }
@@ -40,14 +40,19 @@ async function deriveKey(password: string): Promise<CryptoKey> {
   );
 }
 
-async function encrypt(plaintext: ArrayBuffer, key: CryptoKey): Promise<{ ct: ArrayBuffer; iv: ArrayBuffer }> {
+async function encrypt(plaintext: ArrayBuffer, key: CryptoKey): Promise<{ ct: string; iv: string }> {
   const iv = crypto.getRandomValues(new Uint8Array(12));
   const ct = await crypto.subtle.encrypt({ name: "AES-GCM", iv }, key, plaintext);
-  return { ct, iv: iv.buffer };
+  return {
+    ct: btoa(String.fromCharCode(...new Uint8Array(ct))),
+    iv: btoa(String.fromCharCode(...iv)),
+  };
 }
 
-async function decrypt(ct: ArrayBuffer, iv: ArrayBuffer, key: CryptoKey): Promise<ArrayBuffer> {
-  return await crypto.subtle.decrypt({ name: "AES-GCM", iv: new Uint8Array(iv) }, key, ct);
+async function decrypt(ctBase64: string, ivBase64: string, key: CryptoKey): Promise<ArrayBuffer> {
+  const ct = Uint8Array.from(atob(ctBase64), (c) => c.charCodeAt(0));
+  const iv = Uint8Array.from(atob(ivBase64), (c) => c.charCodeAt(0));
+  return await crypto.subtle.decrypt({ name: "AES-GCM", iv }, key, ct);
 }
 
 // ── IndexedDB helpers ──────────────────────────────────────────────────────────
@@ -122,10 +127,10 @@ export async function getCachedBlob(key: string): Promise<Blob | null> {
       return null;
     }
     const cryptoKey = await deriveKey(key);
-    const plain = await decrypt(entry.ct, entry.iv, cryptoKey);
+    const plain = await decrypt(entry.ct as string, entry.iv as string, cryptoKey);
     return new Blob([plain]);
   } catch (e) {
-    console.error(`[Cache] Failed to decrypt blob ${key}:`, e);
+    console.log(`[Cache] Failed to decrypt blob ${key}:`, e);
     return null;
   }
 }
@@ -162,10 +167,10 @@ export async function getCachedJson<T>(key: string): Promise<T | null> {
       return null;
     }
     const cryptoKey = await deriveKey(key);
-    const plain = await decrypt(entry.ct, entry.iv, cryptoKey);
+    const plain = await decrypt(entry.ct as string, entry.iv as string, cryptoKey);
     return JSON.parse(new TextDecoder().decode(plain)) as T;
   } catch (e) {
-    console.error(`[Cache] Failed to decrypt json ${key}:`, e);
+    console.log(`[Cache] Failed to decrypt json ${key}:`, e);
     return null;
   }
 }
