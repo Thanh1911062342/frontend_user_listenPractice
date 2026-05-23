@@ -1,16 +1,56 @@
-// Simple cache using IndexedDB - no encryption for now
-// Will add encryption layer later
+// IndexedDB cache with AES-GCM encryption
+// Keys are simple: a:trackId (audio), meta:trackId (metadata)
 
 const DB_NAME = "_cache";
 const STORE = "data";
 const DB_VERSION = 1;
 const DEFAULT_TTL = 24 * 60 * 60 * 1000;
+const SALT = "lp-cache-v2";
+const PBKDF2_ITERS = 100000;
 
 interface CacheEntry {
-  value: ArrayBuffer | string;
+  ct: ArrayBuffer;      // ciphertext
+  iv: ArrayBuffer;      // IV
   type: "blob" | "json";
   exp: number;
 }
+
+// ── Encryption helpers ────────────────────────────────────────────────────────
+
+async function deriveKey(password: string): Promise<CryptoKey> {
+  const token = localStorage.getItem("user_token") || "anon";
+  const material = await crypto.subtle.importKey(
+    "raw",
+    new TextEncoder().encode(token + ":" + password),
+    "PBKDF2",
+    false,
+    ["deriveKey"]
+  );
+  return crypto.subtle.deriveKey(
+    {
+      name: "PBKDF2",
+      salt: new TextEncoder().encode(SALT),
+      iterations: PBKDF2_ITERS,
+      hash: "SHA-256",
+    },
+    material,
+    { name: "AES-GCM", length: 256 },
+    false,
+    ["encrypt", "decrypt"]
+  );
+}
+
+async function encrypt(plaintext: ArrayBuffer, key: CryptoKey): Promise<{ ct: ArrayBuffer; iv: ArrayBuffer }> {
+  const iv = crypto.getRandomValues(new Uint8Array(12));
+  const ct = await crypto.subtle.encrypt({ name: "AES-GCM", iv }, key, plaintext);
+  return { ct, iv: iv.buffer };
+}
+
+async function decrypt(ct: ArrayBuffer, iv: ArrayBuffer, key: CryptoKey): Promise<ArrayBuffer> {
+  return await crypto.subtle.decrypt({ name: "AES-GCM", iv: new Uint8Array(iv) }, key, ct);
+}
+
+// ── IndexedDB helpers ──────────────────────────────────────────────────────────
 
 function openDB(): Promise<IDBDatabase> {
   return new Promise((resolve, reject) => {
@@ -81,8 +121,11 @@ export async function getCachedBlob(key: string): Promise<Blob | null> {
       await dbDelete(key);
       return null;
     }
-    return new Blob([entry.value as ArrayBuffer]);
-  } catch {
+    const cryptoKey = await deriveKey(key);
+    const plain = await decrypt(entry.ct, entry.iv, cryptoKey);
+    return new Blob([plain]);
+  } catch (e) {
+    console.error(`[Cache] Failed to decrypt blob ${key}:`, e);
     return null;
   }
 }
@@ -93,14 +136,19 @@ export async function setCachedBlob(
   ttlMs: number = DEFAULT_TTL
 ): Promise<boolean> {
   try {
-    const value = await blob.arrayBuffer();
+    const plain = await blob.arrayBuffer();
+    const cryptoKey = await deriveKey(key);
+    const { ct, iv } = await encrypt(plain, cryptoKey);
     await dbPut(key, {
-      value,
+      ct,
+      iv,
       type: "blob",
       exp: Date.now() + ttlMs,
     });
+    console.log(`[Cache] Encrypted blob ${key}`);
     return true;
-  } catch {
+  } catch (e) {
+    console.error(`[Cache] Failed to encrypt blob ${key}:`, e);
     return false;
   }
 }
@@ -113,8 +161,11 @@ export async function getCachedJson<T>(key: string): Promise<T | null> {
       await dbDelete(key);
       return null;
     }
-    return JSON.parse(entry.value as string) as T;
-  } catch {
+    const cryptoKey = await deriveKey(key);
+    const plain = await decrypt(entry.ct, entry.iv, cryptoKey);
+    return JSON.parse(new TextDecoder().decode(plain)) as T;
+  } catch (e) {
+    console.error(`[Cache] Failed to decrypt json ${key}:`, e);
     return null;
   }
 }
@@ -125,14 +176,18 @@ export async function setCachedJson(
   ttlMs: number = DEFAULT_TTL
 ): Promise<boolean> {
   try {
-    const json = JSON.stringify(value);
+    const plain = new TextEncoder().encode(JSON.stringify(value));
+    const cryptoKey = await deriveKey(key);
+    const { ct, iv } = await encrypt(plain.buffer, cryptoKey);
     await dbPut(key, {
-      value: json,
+      ct,
+      iv,
       type: "json",
       exp: Date.now() + ttlMs,
     });
     return true;
-  } catch {
+  } catch (e) {
+    console.error(`[Cache] Failed to encrypt json ${key}:`, e);
     return false;
   }
 }
@@ -168,27 +223,21 @@ export async function listCachedAudio(): Promise<CachedAudioInfo[]> {
 
       const metaKey = `meta:${trackId}`;
       console.log(`[Cache] Looking for metadata: ${metaKey}`);
-      const metaEntry = await dbGet(metaKey);
-      console.log(`[Cache] Metadata entry:`, metaEntry);
-      if (!metaEntry || metaEntry.type !== "json") {
+      const meta = await getCachedJson<{ title: string }>(metaKey);
+      if (!meta || !meta.title) {
         console.log(`[Cache] No metadata found for ${trackId}`);
         continue;
       }
 
-      try {
-        const meta = JSON.parse(metaEntry.value as string) as { title: string };
-        console.log(`[Cache] Found audio: track ${trackId}, title: ${meta.title}`);
-        result.push({
-          key,
-          trackId,
-          title: meta.title,
-          sizeBytes: typeof entry.value === "string" ? entry.value.length : (entry.value as ArrayBuffer).byteLength,
-          cachedAtMs: entry.exp - DEFAULT_TTL,
-          expiresAtMs: entry.exp,
-        });
-      } catch (e) {
-        console.log(`[Cache] Failed to parse metadata for ${trackId}:`, e);
-      }
+      console.log(`[Cache] Found audio: track ${trackId}, title: ${meta.title}`);
+      result.push({
+        key,
+        trackId,
+        title: meta.title,
+        sizeBytes: 0,
+        cachedAtMs: entry.exp - DEFAULT_TTL,
+        expiresAtMs: entry.exp,
+      });
     }
 
     console.log("[Cache] Final result:", result);
@@ -214,12 +263,8 @@ export async function setCachedAudioMeta(
   trackId: number,
   meta: { title: string }
 ): Promise<boolean> {
-  try {
-    const metaKey = `meta:${trackId}`;
-    return await setCachedJson(metaKey, meta);
-  } catch {
-    return false;
-  }
+  const metaKey = `meta:${trackId}`;
+  return await setCachedJson(metaKey, meta);
 }
 
 export async function isAudioCached(trackId: number): Promise<boolean> {
